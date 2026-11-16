@@ -16,11 +16,11 @@
 </div>
 <div class="tabla">
 <table>
-  <thead><tr><th>Código</th><th>Descripción</th><th class="num">Cantidad</th><th>Unidad</th></tr></thead>
+  <thead><tr><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Cantidad</th><th>Unidad</th></tr></thead>
   <tbody>
   {% for i in items %}
     <tr><td><a href="{{ url_for('stock.producto_ficha', producto_id=i.producto_id) }}">{{ i.codigo }}</a></td>
-        <td>{{ i.descripcion }}</td><td class="num">{{ i.cantidad|num }}</td><td>{{ i.unidad }}</td></tr>
+        <td>{{ i.descripcion }}</td><td>{{ i.lote or "(sin lote)" }}</td><td>{{ i.vencimiento|fecha }}</td><td class="num">{{ i.cantidad|num }}</td><td>{{ i.unidad }}</td></tr>
   {% endfor %}
   </tbody>
 </table>

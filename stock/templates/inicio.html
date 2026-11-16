@@ -7,6 +7,7 @@
   <div class="tarjeta"><div class="valor">{{ resumen.productos }}</div><div class="etiqueta">Productos activos</div></div>
   <div class="tarjeta"><div class="valor">{{ resumen.movs_hoy }}</div><div class="etiqueta">Remitos de hoy</div></div>
   <div class="tarjeta"><div class="valor">{{ resumen.bajo_minimo }}</div><div class="etiqueta">Bajo el mínimo (en la lista)</div></div>
+  <a class="tarjeta enlace" href="{{ url_for('stock.lotes', vence='por_vencer', empresa_id=filtros.empresa_id) }}"><div class="valor {{ 'alerta' if resumen.por_vencer }}">{{ resumen.por_vencer }}</div><div class="etiqueta">Lotes vencidos o que vencen en {{ dias_aviso }} días</div></a>
 </div>
 
 <div class="acciones">
@@ -34,7 +35,7 @@
 
 <div class="tabla">
 <table>
-  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th class="num">Stock</th><th>Unidad</th><th class="num">Mínimo</th><th>Último mov.</th></tr></thead>
+  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th class="num">Stock</th><th>Unidad</th><th class="num">Mínimo</th><th>Próx. vencimiento</th><th>Último mov.</th></tr></thead>
   <tbody>
   {% for r in filas %}
     <tr class="{{ 'bajo' if r.stock_minimo > 0 and r.stock < r.stock_minimo }}">
@@ -44,10 +45,12 @@
       <td class="num"><strong>{{ r.stock|num }}</strong></td>
       <td>{{ r.unidad }}</td>
       <td class="num">{{ r.stock_minimo|num if r.stock_minimo else '' }}</td>
+      {% set v = vtos.get(r.id) %}
+      <td class="{{ 'vencido' if v and v < hoy_iso else ('por-vencer' if v and v <= limite_aviso) }}">{{ v|fecha }}</td>
       <td>{{ r.ultimo_mov|fecha }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="7" class="vacio">
+    <tr><td colspan="8" class="vacio">
       {% if not empresas %}Todavía no hay empresas. <a href="{{ url_for('stock.empresa_form') }}">Cargá la primera empresa</a> para empezar.
       {% else %}No hay productos para mostrar con estos filtros.{% endif %}
     </td></tr>

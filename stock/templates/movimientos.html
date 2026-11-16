@@ -23,7 +23,7 @@
     <div class="campo"><label>Desde</label><input type="date" name="desde" value="{{ filtros.desde }}"></div>
     <div class="campo"><label>Hasta</label><input type="date" name="hasta" value="{{ filtros.hasta }}"></div>
     <div class="campo"><label>Remito</label><input name="remito" value="{{ filtros.remito }}"></div>
-    <div class="campo"><label>Producto</label><input name="producto" value="{{ filtros.producto }}" placeholder="Código o descripción"></div>
+    <div class="campo"><label>Producto</label><input name="producto" value="{{ filtros.producto }}" placeholder="Código, descripción o lote"></div>
     <label class="check"><input type="checkbox" name="ver_anulados" value="1" {{ 'checked' if filtros.ver_anulados }}> Ver anulados</label>
     <button class="boton">Filtrar</button>
     <a href="{{ url_for('stock.movimientos') }}">Limpiar</a>
@@ -31,7 +31,7 @@
 </div>
 <div class="tabla">
 <table>
-  <thead><tr><th>Fecha</th><th>Tipo</th><th>Remito</th><th>Empresa</th><th>Código</th><th>Descripción</th><th class="num">Cantidad</th><th>Unidad</th><th>Observaciones</th></tr></thead>
+  <thead><tr><th>Fecha</th><th>Tipo</th><th>Remito</th><th>Empresa</th><th>Código</th><th>Descripción</th><th>Lote</th><th>Vto.</th><th class="num">Cantidad</th><th>Unidad</th><th>Observaciones</th></tr></thead>
   <tbody>
   {% for r in filas %}
     <tr class="{{ 'anulado' if r.anulado }}">
@@ -41,12 +41,13 @@
       <td>{{ r.empresa }}</td>
       <td><a href="{{ url_for('stock.producto_ficha', producto_id=r.producto_id) }}">{{ r.codigo }}</a></td>
       <td>{{ r.descripcion }}</td>
+      <td>{{ r.lote }}</td><td>{{ r.vencimiento|fecha }}</td>
       <td class="num">{{ r.cantidad|num }}</td>
       <td>{{ r.unidad }}</td>
       <td>{{ r.observaciones or '' }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="9" class="vacio">No hay movimientos con estos filtros.</td></tr>
+    <tr><td colspan="11" class="vacio">No hay movimientos con estos filtros.</td></tr>
   {% endfor %}
   </tbody>
 </table>

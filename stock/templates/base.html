@@ -15,9 +15,11 @@
         <a href="{{ url_for('stock.inicio') }}" class="{{ 'activo' if seccion == 'stock.inicio' }}">Stock</a>
         <a href="{{ url_for('stock.movimiento_nuevo', tipo='ingreso') }}" class="{{ 'activo' if request.view_args and request.view_args.get('tipo','').upper() == 'INGRESO' }}">+ Ingreso</a>
         <a href="{{ url_for('stock.movimiento_nuevo', tipo='egreso') }}" class="{{ 'activo' if request.view_args and request.view_args.get('tipo','').upper() == 'EGRESO' }}">− Egreso</a>
+        <a href="{{ url_for('stock.lotes') }}" class="{{ 'activo' if seccion == 'stock.lotes' }}">Lotes y vencimientos</a>
         <a href="{{ url_for('stock.movimientos') }}" class="{{ 'activo' if seccion in ('stock.movimientos', 'stock.movimiento_detalle') }}">Movimientos</a>
         <a href="{{ url_for('stock.productos') }}" class="{{ 'activo' if seccion.startswith('stock.producto') }}">Productos</a>
         <a href="{{ url_for('stock.empresas') }}" class="{{ 'activo' if seccion.startswith('stock.empresa') }}">Empresas</a>
+        <a href="{{ url_for('stock.importar') }}" class="{{ 'activo' if seccion.startswith('stock.importar') }}">Importar Excel</a>
       </nav>
     </div>
   </header>

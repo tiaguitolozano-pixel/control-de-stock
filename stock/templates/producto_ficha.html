@@ -11,23 +11,39 @@
   <a class="boton secundario" href="{{ url_for('stock.producto_form', producto_id=p.id) }}">Editar producto</a>
   <a class="boton secundario" href="{{ url_for('stock.movimientos', empresa_id=p.empresa_id, producto=p.codigo) }}">Ver en movimientos</a>
 </div>
+<h2>Stock por lote</h2>
+<div class="tabla">
+<table>
+  <thead><tr><th>Lote</th><th>Vencimiento</th><th class="num">Stock</th></tr></thead>
+  <tbody>
+  {% for l in lotes %}
+    {% set v = l.vencimiento %}
+    <tr class="{{ 'fila-vencida' if v and v < hoy_iso else ('bajo' if v and v <= limite_aviso) }}">
+      <td>{{ l.lote or '(sin lote)' }}</td><td>{{ v|fecha }}</td><td class="num"><strong>{{ l.stock|num }}</strong></td></tr>
+  {% else %}
+    <tr><td colspan="3" class="vacio">Sin stock.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
 <h2>Historial (lo más nuevo arriba)</h2>
 <div class="tabla">
 <table>
-  <thead><tr><th>Fecha</th><th>Tipo</th><th>Remito</th><th class="num">Entra</th><th class="num">Sale</th><th class="num">Saldo</th><th>Observaciones</th></tr></thead>
+  <thead><tr><th>Fecha</th><th>Tipo</th><th>Remito</th><th>Lote</th><th>Vencimiento</th><th class="num">Entra</th><th class="num">Sale</th><th class="num">Saldo</th><th>Observaciones</th></tr></thead>
   <tbody>
   {% for l in lineas %}
     <tr>
       <td>{{ l.fecha|fecha }}</td>
       <td><span class="etq {{ l.tipo }}">{{ 'Ingreso' if l.tipo == 'INGRESO' else 'Egreso' }}</span></td>
       <td><a href="{{ url_for('stock.movimiento_detalle', movimiento_id=l.id) }}">{{ l.remito }}</a></td>
+      <td>{{ l.lote }}</td><td>{{ l.vencimiento|fecha }}</td>
       <td class="num">{{ l.cantidad|num if l.tipo == 'INGRESO' else '' }}</td>
       <td class="num">{{ l.cantidad|num if l.tipo == 'EGRESO' else '' }}</td>
       <td class="num"><strong>{{ l.saldo|num }}</strong></td>
       <td>{{ l.observaciones or '' }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="7" class="vacio">Este producto todavía no tiene movimientos.</td></tr>
+    <tr><td colspan="9" class="vacio">Este producto todavía no tiene movimientos.</td></tr>
   {% endfor %}
   </tbody>
 </table>

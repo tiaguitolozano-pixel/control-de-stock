@@ -26,9 +26,14 @@
   <div class="tarjeta">
     <h2 style="margin-top:0">Productos</h2>
     <table class="renglones">
-      <thead><tr><th style="width:60%">Producto</th><th class="num">Stock actual</th><th style="width:160px">Cantidad</th><th></th></tr></thead>
+      <thead><tr>
+        <th style="width:45%">Producto</th>
+        {% if tipo == 'INGRESO' %}<th>Lote</th><th>Vencimiento</th>{% else %}<th style="width:30%">Lote (primero el que vence antes)</th>{% endif %}
+        <th style="width:130px">Cantidad</th><th></th>
+      </tr></thead>
       <tbody id="renglones"></tbody>
     </table>
+    <p class="ayuda">{% if tipo == 'INGRESO' %}Si la mercadería no tiene lote, dejalo vacío. El vencimiento es opcional.{% else %}En cada lote se muestra cuánto stock queda.{% endif %}</p>
     <p class="acciones" style="margin-top:12px">
       <button type="button" class="boton secundario" id="agregar">+ Agregar otro producto</button>
       <a href="#" id="nuevo-producto">¿No está el producto? Crealo acá</a>
@@ -51,39 +56,56 @@
   const aviso = document.getElementById('aviso-empresa');
   const linkNuevo = document.getElementById('nuevo-producto');
   const esEgreso = {{ 'true' if tipo == 'EGRESO' else 'false' }};
+  const hoy = '{{ hoy_iso }}', limite = '{{ limite_aviso }}';
   const iniciales = {{ renglones|tojson }};
   let productos = [];
 
   const fmt = n => Number(n).toLocaleString('es-AR', {maximumFractionDigits: 3});
+  const dmy = iso => iso ? iso.split('-').reverse().join('/') : '';
+  function esc(t) { const d = document.createElement('div'); d.textContent = t == null ? '' : t; return d.innerHTML; }
 
-  function opciones(sel) {
+  function opcionesProducto(sel) {
     let html = '<option value="">Elegí un producto…</option>';
     for (const p of productos) {
       const s = String(p.id) === String(sel) ? ' selected' : '';
-      html += `<option value="${p.id}"${s}>${escapar(p.codigo)} - ${escapar(p.descripcion)} (${escapar(p.unidad)})</option>`;
+      const extra = esEgreso ? ` · stock ${fmt(p.stock)}` : '';
+      html += `<option value="${p.id}"${s}>${esc(p.codigo)} - ${esc(p.descripcion)} (${esc(p.unidad)})${extra}</option>`;
     }
     return html;
   }
-  function escapar(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
 
-  function actualizarStock(tr) {
-    const id = tr.querySelector('select').value;
-    const p = productos.find(x => String(x.id) === id);
-    const celda = tr.querySelector('.stock-actual');
-    celda.textContent = p ? fmt(p.stock) + ' ' + p.unidad : '';
-    celda.style.color = (p && esEgreso && p.stock <= 0) ? '#b3261e' : '';
+  function opcionesLote(prodId, sel) {
+    const p = productos.find(x => String(x.id) === String(prodId));
+    if (!p) return '<option value="">—</option>';
+    if (!p.lotes.length) return '<option value="">Sin stock</option>';
+    let html = '';
+    p.lotes.forEach(l => {
+      const s = String(l.id) === String(sel) ? ' selected' : '';
+      let txt = l.lote ? 'Lote ' + l.lote : 'Sin lote';
+      if (l.vencimiento) txt += ' · vence ' + dmy(l.vencimiento) + (l.vencimiento < hoy ? ' (VENCIDO)' : (l.vencimiento <= limite ? ' (por vencer)' : ''));
+      txt += ' · hay ' + fmt(l.stock) + ' ' + p.unidad;
+      html += `<option value="${l.id}"${s}>${esc(txt)}</option>`;
+    });
+    return html;
   }
 
-  function agregar(prodId, cant) {
+  function agregar(r) {
+    r = r || {};
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td><select name="producto_id">${opciones(prodId)}</select></td>
-      <td class="num stock-actual"></td>
-      <td><input name="cantidad" inputmode="decimal" placeholder="0" value="${cant ? escapar(cant) : ''}"></td>
+    const celdaLote = esEgreso
+      ? `<td><select name="lote_id">${opcionesLote(r.producto_id, r.lote_id)}</select></td>`
+      : `<td><input name="lote" value="${esc(r.lote)}" placeholder="Sin lote"></td>
+         <td><input type="date" name="vencimiento" value="${esc(r.vencimiento)}"></td>`;
+    tr.innerHTML = `<td><select name="producto_id">${opcionesProducto(r.producto_id)}</select></td>
+      ${celdaLote}
+      <td><input name="cantidad" inputmode="decimal" placeholder="0" value="${esc(r.cantidad)}"></td>
       <td><button type="button" class="boton chico secundario" title="Quitar">✕</button></td>`;
-    tr.querySelector('select').addEventListener('change', () => actualizarStock(tr));
+    const selProd = tr.querySelector('select[name=producto_id]');
+    selProd.addEventListener('change', () => {
+      if (esEgreso) tr.querySelector('select[name=lote_id]').innerHTML = opcionesLote(selProd.value);
+    });
     tr.querySelector('button').addEventListener('click', () => { tr.remove(); if (!cuerpo.children.length) agregar(); });
     cuerpo.appendChild(tr);
-    actualizarStock(tr);
   }
 
   async function cargarProductos(conservar) {
@@ -96,10 +118,9 @@
       aviso.style.display = productos.length ? 'none' : '';
       aviso.textContent = productos.length ? '' : 'Esta empresa todavía no tiene productos. Crealos con el enlace de arriba.';
     }
-    const previos = conservar || [];
     cuerpo.innerHTML = '';
-    if (previos.length) previos.forEach(r => agregar(r.producto_id, r.cantidad));
-    else agregar();
+    const previos = conservar || [];
+    if (previos.length) previos.forEach(agregar); else agregar();
   }
 
   empresa.addEventListener('change', () => cargarProductos());
