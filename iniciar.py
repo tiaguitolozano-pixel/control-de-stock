@@ -6,12 +6,19 @@ Desde otras PCs de la misma red: http://IP-DE-ESTA-PC:5000
 """
 import os
 import socket
+import sys
 import threading
 import webbrowser
 
-from waitress import serve
+# Los componentes necesarios (Flask, openpyxl, waitress) vienen incluidos en la carpeta
+# "vendor", así no hace falta descargar nada de internet para usar el programa.
+CARPETA = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(CARPETA, "vendor"))
+sys.path.insert(0, CARPETA)
 
-from stock import create_app
+from waitress import serve  # noqa: E402
+
+from stock import create_app  # noqa: E402
 
 PUERTO = int(os.environ.get("STOCK_PUERTO", "5000"))
 

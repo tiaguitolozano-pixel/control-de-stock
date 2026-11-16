@@ -28,8 +28,7 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
 1. Instalar Python desde <https://www.python.org/downloads/>.
    **Importante:** en la primera pantalla del instalador marcar la casilla **"Add python.exe to PATH"**.
 2. Bajar esta carpeta (en GitHub: botón verde **Code → Download ZIP**) y descomprimirla, por ejemplo en `C:\ControlStock`.
-3. Hacer doble clic en **`iniciar.bat`**.
-   La primera vez tarda un minuto porque instala lo necesario (requiere internet solo esa vez).
+3. Hacer doble clic en **`iniciar.bat`**. No necesita internet: todo lo que usa viene incluido en la carpeta `vendor`.
 4. Se abre solo el navegador en <http://localhost:5000>. Si no se abre, escribir esa dirección a mano.
 
 Para cerrarlo, cerrar la ventana negra. Para usarlo de nuevo, doble clic otra vez en `iniciar.bat`.
@@ -45,7 +44,8 @@ La PC donde corre el programa tiene que estar prendida. Si Windows pregunta por 
 ## Dónde quedan los datos y cómo hacer respaldo
 
 Todo se guarda en un solo archivo: **`datos/stock.db`** dentro de la carpeta del programa.
-Para hacer un respaldo, copiar ese archivo (por ejemplo a un pendrive o a Google Drive) con el programa cerrado.
+Conviene que la carpeta del programa **no** esté dentro de OneDrive o Google Drive, porque la sincronización
+mientras el programa está abierto puede dañar ese archivo. Para hacer un respaldo, copiar ese archivo (por ejemplo a un pendrive o a Google Drive) con el programa cerrado.
 Para restaurar, volver a ponerlo en su lugar.
 
 ## Primeros pasos
@@ -63,6 +63,8 @@ A partir de ahí, cargar cada ingreso y egreso con su remito.
 ## Para quien programe
 
 - Python 3.10+, Flask, SQLite, openpyxl. Se sirve con waitress.
+- Las dependencias (puro Python) están copiadas en `vendor/` para que funcione sin internet;
+  `iniciar.py` las agrega al `sys.path`. Para desarrollo se puede usar un venv con `requirements-dev.txt`.
 - Código en `stock/` (`rutas.py` las pantallas, `db.py` la base, `templates/` el HTML).
 - Pruebas: `pip install -r requirements-dev.txt` y `pytest`.
 - Variables opcionales: `STOCK_DB` (ruta de la base), `STOCK_PUERTO` (por defecto 5000),
