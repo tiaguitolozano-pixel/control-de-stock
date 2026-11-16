@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block titulo %}Movimientos{% endblock %}
+{% block contenido %}
+<h1>Historial de movimientos</h1>
+<div class="acciones">
+  <a class="boton verde" href="{{ url_for('stock.movimiento_nuevo', tipo='ingreso') }}">+ Cargar ingreso</a>
+  <a class="boton rojo" href="{{ url_for('stock.movimiento_nuevo', tipo='egreso') }}">− Cargar egreso</a>
+  <a class="boton secundario" href="{{ url_for('stock.movimientos_excel', **request.args) }}">⬇ Exportar a Excel</a>
+</div>
+<div class="tarjeta">
+  <form class="filtros" method="get">
+    <div class="campo"><label>Empresa</label>
+      <select name="empresa_id">
+        <option value="">Todas</option>
+        {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == filtros.empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="campo"><label>Tipo</label>
+      <select name="tipo"><option value="">Todos</option>
+        {% for k, v in tipos.items() %}<option value="{{ k }}" {{ 'selected' if k == filtros.tipo }}>{{ v }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="campo"><label>Desde</label><input type="date" name="desde" value="{{ filtros.desde }}"></div>
+    <div class="campo"><label>Hasta</label><input type="date" name="hasta" value="{{ filtros.hasta }}"></div>
+    <div class="campo"><label>Remito</label><input name="remito" value="{{ filtros.remito }}"></div>
+    <div class="campo"><label>Producto</label><input name="producto" value="{{ filtros.producto }}" placeholder="Código o descripción"></div>
+    <label class="check"><input type="checkbox" name="ver_anulados" value="1" {{ 'checked' if filtros.ver_anulados }}> Ver anulados</label>
+    <button class="boton">Filtrar</button>
+    <a href="{{ url_for('stock.movimientos') }}">Limpiar</a>
+  </form>
+</div>
+<div class="tabla">
+<table>
+  <thead><tr><th>Fecha</th><th>Tipo</th><th>Remito</th><th>Empresa</th><th>Código</th><th>Descripción</th><th class="num">Cantidad</th><th>Unidad</th><th>Observaciones</th></tr></thead>
+  <tbody>
+  {% for r in filas %}
+    <tr class="{{ 'anulado' if r.anulado }}">
+      <td>{{ r.fecha|fecha }}</td>
+      <td><span class="etq {{ r.tipo }}">{{ tipos[r.tipo] }}</span>{% if r.anulado %} <span class="etq anulado">anulado</span>{% endif %}</td>
+      <td><a href="{{ url_for('stock.movimiento_detalle', movimiento_id=r.id) }}">{{ r.remito }}</a></td>
+      <td>{{ r.empresa }}</td>
+      <td><a href="{{ url_for('stock.producto_ficha', producto_id=r.producto_id) }}">{{ r.codigo }}</a></td>
+      <td>{{ r.descripcion }}</td>
+      <td class="num">{{ r.cantidad|num }}</td>
+      <td>{{ r.unidad }}</td>
+      <td>{{ r.observaciones or '' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="9" class="vacio">No hay movimientos con estos filtros.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if filas|length >= 5000 %}<p class="ayuda">Se muestran los últimos 5.000 renglones. Usá los filtros para acotar.</p>{% endif %}
+{% endblock %}

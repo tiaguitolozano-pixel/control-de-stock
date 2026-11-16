@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block titulo %}{{ 'Editar' if editando else 'Nuevo' }} producto{% endblock %}
+{% block contenido %}
+<h1>{{ 'Editar producto' if editando else 'Nuevo producto' }}</h1>
+<form method="post" class="tarjeta">
+  <input type="hidden" name="volver" value="{{ volver }}">
+  <div class="grilla2">
+    <div class="campo"><label>Empresa *</label>
+      <select name="empresa_id" required {{ 'disabled' if editando }}>
+        <option value="">Elegí…</option>
+        {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == producto.empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+      </select>
+      {% if editando %}<div class="ayuda">La empresa de un producto no se puede cambiar.</div>{% endif %}
+    </div>
+    <div class="campo"><label>Código *</label><input name="codigo" value="{{ producto.codigo or '' }}" required></div>
+    <div class="campo"><label>Descripción *</label><input name="descripcion" value="{{ producto.descripcion or '' }}" required></div>
+    <div class="campo"><label>Unidad</label>
+      <input name="unidad" value="{{ producto.unidad or 'unidades' }}" list="unidades">
+      <datalist id="unidades"><option>unidades</option><option>cajas</option><option>pallets</option><option>bultos</option><option>kg</option><option>litros</option><option>metros</option></datalist>
+    </div>
+    <div class="campo"><label>Stock mínimo (opcional)</label><input name="stock_minimo" value="{{ producto.stock_minimo|num if producto.stock_minimo else '' }}" inputmode="decimal">
+      <div class="ayuda">Si el stock baja de este número, se marca en amarillo.</div></div>
+  </div>
+  {% if editando %}
+  <label class="check campo"><input type="checkbox" name="activo" value="1" {{ 'checked' if producto.activo }}> Activo</label>
+  {% endif %}
+  <button class="boton">Guardar</button>
+  <a class="boton secundario" href="{{ volver or url_for('stock.productos') }}">Cancelar</a>
+</form>
+{% endblock %}

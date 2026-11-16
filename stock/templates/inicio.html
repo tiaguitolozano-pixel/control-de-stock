@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block titulo %}Stock{% endblock %}
+{% block contenido %}
+<h1>Stock actual</h1>
+<div class="resumen">
+  <div class="tarjeta"><div class="valor">{{ resumen.empresas }}</div><div class="etiqueta">Empresas activas</div></div>
+  <div class="tarjeta"><div class="valor">{{ resumen.productos }}</div><div class="etiqueta">Productos activos</div></div>
+  <div class="tarjeta"><div class="valor">{{ resumen.movs_hoy }}</div><div class="etiqueta">Remitos de hoy</div></div>
+  <div class="tarjeta"><div class="valor">{{ resumen.bajo_minimo }}</div><div class="etiqueta">Bajo el mínimo (en la lista)</div></div>
+</div>
+
+<div class="acciones">
+  <a class="boton verde" href="{{ url_for('stock.movimiento_nuevo', tipo='ingreso', empresa_id=filtros.empresa_id) }}">+ Cargar ingreso</a>
+  <a class="boton rojo" href="{{ url_for('stock.movimiento_nuevo', tipo='egreso', empresa_id=filtros.empresa_id) }}">− Cargar egreso</a>
+  <a class="boton secundario" href="{{ url_for('stock.stock_excel', **request.args) }}">⬇ Exportar a Excel</a>
+  <button class="boton secundario" onclick="window.print()">🖨 Imprimir</button>
+</div>
+
+<div class="tarjeta">
+  <form class="filtros" method="get">
+    <div class="campo">
+      <label>Empresa</label>
+      <select name="empresa_id" onchange="this.form.submit()">
+        <option value="">Todas</option>
+        {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == filtros.empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="campo"><label>Buscar producto</label><input name="buscar" value="{{ filtros.buscar }}" placeholder="Código o descripción"></div>
+    <label class="check"><input type="checkbox" name="solo_con_stock" value="1" {{ 'checked' if filtros.solo_con_stock }} onchange="this.form.submit()"> Solo con stock</label>
+    <button class="boton">Filtrar</button>
+    <a href="{{ url_for('stock.inicio') }}">Limpiar</a>
+  </form>
+</div>
+
+<div class="tabla">
+<table>
+  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th class="num">Stock</th><th>Unidad</th><th class="num">Mínimo</th><th>Último mov.</th></tr></thead>
+  <tbody>
+  {% for r in filas %}
+    <tr class="{{ 'bajo' if r.stock_minimo > 0 and r.stock < r.stock_minimo }}">
+      <td>{{ r.empresa }}</td>
+      <td><a href="{{ url_for('stock.producto_ficha', producto_id=r.id) }}">{{ r.codigo }}</a></td>
+      <td>{{ r.descripcion }} {% if not r.activo %}<span class="etq inactivo">inactivo</span>{% endif %}</td>
+      <td class="num"><strong>{{ r.stock|num }}</strong></td>
+      <td>{{ r.unidad }}</td>
+      <td class="num">{{ r.stock_minimo|num if r.stock_minimo else '' }}</td>
+      <td>{{ r.ultimo_mov|fecha }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="vacio">
+      {% if not empresas %}Todavía no hay empresas. <a href="{{ url_for('stock.empresa_form') }}">Cargá la primera empresa</a> para empezar.
+      {% else %}No hay productos para mostrar con estos filtros.{% endif %}
+    </td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="ayuda">Las filas en amarillo están por debajo del stock mínimo configurado en el producto.</p>
+{% endblock %}
