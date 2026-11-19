@@ -49,15 +49,17 @@
       <thead><tr>
         <th style="width:36%">Producto</th>
         {% if tipo == 'INGRESO' %}<th>Lote</th><th>Vencimiento</th>{% else %}<th style="width:28%">Lote (primero el que vence antes)</th>{% endif %}
-        <th style="width:130px">Cantidad *</th>
-        <th style="width:150px">En pallets</th><th></th>
+        <th style="width:90px">Pallets</th>
+        <th style="width:110px">+ Unidades sueltas</th>
+        <th style="width:120px">= Total *</th><th></th>
       </tr></thead>
       <tbody id="renglones"></tbody>
     </table>
     </div>
     <p class="ayuda">{% if tipo == 'INGRESO' %}Si la mercadería no tiene lote, dejalo vacío. El vencimiento es opcional.{% else %}En cada lote se muestra cuánto stock queda.{% endif %}
-      La cantidad va en unidades del envase (bolsas, tambores…) y el programa la divide por las unidades que lleva un pallet
-      para mostrarla en pallets. También podés escribir la cantidad de pallets y la cantidad se calcula sola.</p>
+      <br>La cantidad se puede cargar de dos formas: pallets completos más unidades sueltas (el total se calcula solo),
+      o directamente la cantidad total en unidades (bolsas, tambores…). Así se puede fraccionar: por ejemplo, sacar 10 bolsas de un pallet.
+      Si el producto no tiene cargadas las unidades por pallet, escribí la cantidad total.</p>
     <p class="acciones" style="margin-top:12px">
       <button type="button" class="boton secundario" id="agregar">+ Agregar otro producto</button>
       <a href="#" id="nuevo-producto">¿No está el producto? Crealo acá</a>
@@ -160,39 +162,53 @@
          <td><input type="date" name="vencimiento" value="${esc(r.vencimiento)}"></td>`;
     tr.innerHTML = `<td><select name="producto_id">${opcionesProducto(r.producto_id)}</select></td>
       ${celdaLote}
-      <td><input name="cantidad" inputmode="decimal" placeholder="0" value="${esc(r.cantidad)}" aria-label="Cantidad"></td>
-      <td><input class="pallets-input" inputmode="decimal" placeholder="—" aria-label="Cantidad de pallets">
+      <td><input class="pallets-input" inputmode="decimal" placeholder="—" aria-label="Pallets completos"></td>
+      <td><input class="sueltas-input" inputmode="decimal" placeholder="—" aria-label="Unidades sueltas"></td>
+      <td><input name="cantidad" inputmode="decimal" placeholder="0" value="${esc(r.cantidad)}" aria-label="Cantidad total">
           <div class="conv"></div></td>
       <td><button type="button" class="boton chico secundario" title="Quitar">✕</button></td>`;
     const selProd = tr.querySelector('select[name=producto_id]');
     const cant = tr.querySelector('input[name=cantidad]');
     const pal = tr.querySelector('.pallets-input');
+    const sue = tr.querySelector('.sueltas-input');
     const conv = tr.querySelector('.conv');
+    const r3 = n => Math.round(n * 1000) / 1000;
 
     function porPallet() { const p = productoDe(selProd.value); return p && p.por_pallet ? Number(p.por_pallet) : 0; }
     function actualizarConv() {
+      // Debajo del total: en qué unidad se cuenta (bolsas, tambores…).
       const p = productoDe(selProd.value);
-      conv.textContent = p ? textoPallets(leerNumero(cant.value), porPallet(), p.unidad) : '';
+      conv.textContent = p ? 'en ' + (p.unidad || '').toLowerCase() : '';
+    }
+    // Pallets completos + sueltas -> total
+    function desdePartes() {
+      const pp = porPallet();
+      if (!pp) return;
+      const P = leerNumero(pal.value), s = leerNumero(sue.value);
+      const total = (P > 0 ? P : 0) * pp + (s > 0 ? s : 0);
+      cant.value = total > 0 ? fmtCampo(r3(total)) : '';
+      actualizarConv();
+    }
+    // Total -> pallets completos + sueltas
+    function desdeTotal() {
+      const pp = porPallet(), t = leerNumero(cant.value);
+      if (!pp || !(t > 0)) { pal.value = ''; sue.value = ''; actualizarConv(); return; }
+      const P = Math.floor(t / pp + 1e-9);
+      const s = r3(t - P * pp);
+      pal.value = String(P);
+      sue.value = s > 1e-9 ? fmtCampo(s) : '0';
+      actualizarConv();
     }
     function prepararPallets() {
       const pp = porPallet();
-      pal.disabled = !pp;
-      pal.placeholder = pp ? '0' : '—';
-      pal.title = pp ? `1 pallet = ${fmt(pp)} unidades` : 'Este producto no tiene cargadas las unidades por pallet';
-      const c = leerNumero(cant.value);
-      pal.value = pp && c > 0 ? fmtCampo(Math.round(c / pp * 1000) / 1000) : '';
-      actualizarConv();
+      const ayuda = pp ? `1 pallet = ${fmt(pp)} unidades`
+                       : 'Este producto no tiene cargadas las unidades por pallet: escribí la cantidad total';
+      for (const i of [pal, sue]) { i.disabled = !pp; i.placeholder = pp ? '0' : '—'; i.title = ayuda; }
+      desdeTotal();
     }
-    cant.addEventListener('input', () => {
-      const pp = porPallet(), c = leerNumero(cant.value);
-      if (pp) pal.value = c > 0 ? fmtCampo(Math.round(c / pp * 1000) / 1000) : '';
-      actualizarConv();
-    });
-    pal.addEventListener('input', () => {
-      const pp = porPallet(), n = leerNumero(pal.value);
-      if (pp) cant.value = n > 0 ? fmtCampo(Math.round(n * pp * 1000) / 1000) : '';
-      actualizarConv();
-    });
+    cant.addEventListener('input', desdeTotal);
+    pal.addEventListener('input', desdePartes);
+    sue.addEventListener('input', desdePartes);
     selProd.addEventListener('change', () => {
       if (esEgreso) tr.querySelector('select[name=lote_id]').innerHTML = opcionesLote(selProd.value);
       prepararPallets();
