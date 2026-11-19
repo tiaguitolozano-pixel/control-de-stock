@@ -1,4 +1,5 @@
 """Reglas de negocio compartidas: lotes, registro de movimientos e importación desde Excel."""
+import re
 import unicodedata
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -11,8 +12,15 @@ from .db import asegurar_envase, get_db
 # ------------------------------------------------------------- conversiones
 
 
+# '1.000', '12.500', '1.000.000': el punto separa miles (no es una coma decimal).
+_CON_PUNTO_DE_MILES = re.compile(r"^-?[1-9]\d{0,2}(\.\d{3})+$")
+
+
 def parse_numero(valor):
-    """Acepta números o textos como '1.234,5', '1234,5' o '1234.5'. Devuelve None si no se entiende."""
+    """Entiende números escritos a la argentina. Devuelve None si no se entiende.
+
+    '1.234,5' -> 1234.5 ; '1234,5' -> 1234.5 ; '1.000' -> 1000 ; '2.5' -> 2.5
+    """
     if valor is None:
         return None
     if isinstance(valor, (int, float)):
@@ -22,6 +30,8 @@ def parse_numero(valor):
         return None
     if "," in texto:
         texto = texto.replace(".", "").replace(",", ".")
+    elif _CON_PUNTO_DE_MILES.match(texto):
+        texto = texto.replace(".", "")
     try:
         return float(texto)
     except ValueError:

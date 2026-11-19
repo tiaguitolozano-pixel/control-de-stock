@@ -486,3 +486,24 @@ def test_respaldo_diario(tmp_path):
     assert os.path.exists(destino)
     assert len(list(carpeta.glob("stock-*.db"))) == 30
     assert respaldo_diario(str(ruta)) == destino  # mismo día: no duplica
+
+
+def test_numeros_a_la_argentina():
+    from stock.servicios import parse_numero
+    assert parse_numero("1.000") == 1000
+    assert parse_numero("12.500") == 12500
+    assert parse_numero("1.000.000") == 1000000
+    assert parse_numero("1.234,5") == 1234.5
+    assert parse_numero("1234,5") == 1234.5
+    assert parse_numero("2.5") == 2.5
+    assert parse_numero("0.500") == 0.5
+    assert parse_numero("40") == 40
+    assert parse_numero("diez") is None
+
+
+def test_cantidad_con_punto_de_miles(app, client):
+    crear_empresa(client)
+    crear_producto_pallet(client, por_pallet="1.000")
+    assert movimiento(client, "ingreso", [(1, "2.500")]).status_code == 302
+    assert stock(app, 1) == 2500
+    assert "2 pallets + 500 bolsas" in client.get("/").get_data(as_text=True)

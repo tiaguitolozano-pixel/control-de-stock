@@ -49,15 +49,15 @@
       <thead><tr>
         <th style="width:36%">Producto</th>
         {% if tipo == 'INGRESO' %}<th>Lote</th><th>Vencimiento</th>{% else %}<th style="width:28%">Lote (primero el que vence antes)</th>{% endif %}
-        <th style="width:90px">Pallets</th>
-        <th style="width:140px">Cantidad *</th><th></th>
+        <th style="width:130px">Cantidad *</th>
+        <th style="width:150px">En pallets</th><th></th>
       </tr></thead>
       <tbody id="renglones"></tbody>
     </table>
     </div>
     <p class="ayuda">{% if tipo == 'INGRESO' %}Si la mercadería no tiene lote, dejalo vacío. El vencimiento es opcional.{% else %}En cada lote se muestra cuánto stock queda.{% endif %}
-      La cantidad va en unidades del envase (bolsas, tambores…). Si el producto tiene cargadas las unidades por pallet,
-      podés escribir los pallets y la cantidad se calcula sola, o al revés.</p>
+      La cantidad va en unidades del envase (bolsas, tambores…) y el programa la divide por las unidades que lleva un pallet
+      para mostrarla en pallets. También podés escribir la cantidad de pallets y la cantidad se calcula sola.</p>
     <p class="acciones" style="margin-top:12px">
       <button type="button" class="boton secundario" id="agregar">+ Agregar otro producto</button>
       <a href="#" id="nuevo-producto">¿No está el producto? Crealo acá</a>
@@ -90,9 +90,11 @@
   const dmy = iso => iso ? iso.split('-').reverse().join('/') : '';
   function esc(t) { const d = document.createElement('div'); d.textContent = t == null ? '' : t; return d.innerHTML; }
   function leerNumero(t) {
+    // Igual que el programa: '1.234,5' = 1234,5 ; '1.000' = mil ; '2.5' = 2,5
     t = String(t || '').trim().replace(/\s/g, '');
     if (!t) return NaN;
     if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+    else if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
     return Number(t);
   }
   function textoPallets(cant, porPallet, unidad) {
@@ -158,8 +160,8 @@
          <td><input type="date" name="vencimiento" value="${esc(r.vencimiento)}"></td>`;
     tr.innerHTML = `<td><select name="producto_id">${opcionesProducto(r.producto_id)}</select></td>
       ${celdaLote}
-      <td><input class="pallets-input" inputmode="decimal" placeholder="—" aria-label="Pallets"></td>
-      <td><input name="cantidad" inputmode="decimal" placeholder="0" value="${esc(r.cantidad)}">
+      <td><input name="cantidad" inputmode="decimal" placeholder="0" value="${esc(r.cantidad)}" aria-label="Cantidad"></td>
+      <td><input class="pallets-input" inputmode="decimal" placeholder="—" aria-label="Cantidad de pallets">
           <div class="conv"></div></td>
       <td><button type="button" class="boton chico secundario" title="Quitar">✕</button></td>`;
     const selProd = tr.querySelector('select[name=producto_id]');
