@@ -5,7 +5,8 @@ import pytest
 from openpyxl import Workbook, load_workbook
 
 from stock import create_app, formato_numero
-from stock.db import get_db, stock_de_lotes, stock_por_id, stock_por_lote_id
+from stock.db import envases, get_db, stock_de_lotes, stock_por_id, stock_por_lote_id
+from stock.formato import texto_pallets
 
 
 @pytest.fixture
@@ -98,7 +99,7 @@ def test_mismo_codigo_en_distintas_empresas_y_duplicado_en_la_misma(client):
     crear_empresa(client, "Otra")
     crear_producto(client, empresa_id=1, codigo="A1")
     crear_producto(client, empresa_id=2, codigo="A1")
-    r = client.post("/productos/nuevo", data={"empresa_id": 1, "codigo": "a1", "descripcion": "x"})
+    r = client.post("/productos/nuevo", data={"empresa_id": 1, "codigo": "a1", "descripcion": "x", "unidad": "Bolsas"})
     assert "ya tiene un producto con ese código" in r.get_data(as_text=True)
 
 
@@ -165,10 +166,10 @@ def test_exportar_excel(client):
     r = client.get("/stock/excel")
     ws = load_workbook(BytesIO(r.data)).active
     assert ws["A1"].value == "Empresa"
-    assert ws["E2"].value == 10
+    assert ws["D1"].value == "Stock" and ws["D2"].value == 10
     r = client.get("/movimientos/excel?tipo=INGRESO")
     ws = load_workbook(BytesIO(r.data)).active
-    assert ws["C2"].value == "R-1"
+    assert ws["B1"].value == "Remito" and ws["B2"].value == "R-1"
 
 
 def test_filtro_movimientos_por_fecha(client):
@@ -299,3 +300,189 @@ def test_plantilla_se_descarga(client):
 def test_formato_numero():
     assert formato_numero(1234.5) == "1.234,5"
     assert formato_numero(10.0) == "10"
+
+
+# ------------------------------------------------------------ segunda ronda
+
+
+def crear_producto_pallet(client, empresa_id=1, codigo="B1", unidad="Bolsas", por_pallet="40"):
+    r = client.post("/productos/nuevo", data={
+        "empresa_id": empresa_id, "codigo": codigo, "descripcion": f"Producto {codigo}",
+        "unidad": unidad, "unidades_por_pallet": por_pallet,
+    })
+    assert r.status_code == 302, r.data
+
+
+def test_texto_pallets():
+    assert texto_pallets(100, 40, "Bolsas") == "2 pallets + 20 bolsas"
+    assert texto_pallets(80, 40, "Bolsas") == "2 pallets"
+    assert texto_pallets(40, 40, "Bolsas") == "1 pallet"
+    assert texto_pallets(10, 40, "Bolsas") == "menos de 1 pallet"
+    assert texto_pallets(10, None, "Bolsas") == ""
+    assert texto_pallets(0, 40, "Bolsas") == ""
+
+
+def test_envase_obligatorio_y_otro_tipo_se_agrega_a_la_lista(app, client):
+    crear_empresa(client)
+    r = client.post("/productos/nuevo", data={"empresa_id": 1, "codigo": "X", "descripcion": "x"})
+    assert "Elegí el tipo de envase" in r.get_data(as_text=True)
+    r = client.post("/productos/nuevo", data={"empresa_id": 1, "codigo": "X", "descripcion": "x",
+                                              "unidad": "__otro__", "unidad_otra": "Contenedores IBC"})
+    assert r.status_code == 302
+    with app.app_context():
+        nombres = [e["nombre"] for e in envases()]
+        assert "Contenedores IBC" in nombres and "Tambores de chapa" in nombres and "Cisternas" in nombres
+        assert get_db().execute("SELECT unidad FROM productos").fetchone()[0] == "Contenedores IBC"
+
+
+def test_renombrar_envase_actualiza_productos(app, client):
+    crear_empresa(client)
+    crear_producto_pallet(client, unidad="Tambores de chapa")
+    with app.app_context():
+        envase_id = get_db().execute("SELECT id FROM envases WHERE nombre = 'Tambores de chapa'").fetchone()[0]
+    r = client.post(f"/envases/{envase_id}", data={"nombre": "Tambores de chapa 200 L"})
+    assert r.status_code == 302
+    with app.app_context():
+        assert get_db().execute("SELECT unidad FROM productos").fetchone()[0] == "Tambores de chapa 200 L"
+    texto = client.get("/envases").get_data(as_text=True)
+    assert "Tambores de chapa 200 L" in texto
+
+
+def test_por_pallet_invalido(client):
+    crear_empresa(client)
+    r = client.post("/productos/nuevo", data={"empresa_id": 1, "codigo": "X", "descripcion": "x",
+                                              "unidad": "Bolsas", "unidades_por_pallet": "cero"})
+    assert "unidades por pallet" in r.get_data(as_text=True)
+
+
+def test_stock_muestra_pallets(client):
+    crear_empresa(client)
+    crear_producto_pallet(client)
+    movimiento(client, "ingreso", [(1, "100", "L1")])
+    texto = client.get("/").get_data(as_text=True)
+    assert "2 pallets + 20 bolsas" in texto
+    ws = load_workbook(BytesIO(client.get("/stock/excel").data)).active
+    encabezados = [c.value for c in ws[1]]
+    assert ws.cell(2, encabezados.index("Pallets") + 1).value == 2.5
+
+
+def test_transporte_se_guarda_y_autocompleta(app, client):
+    crear_empresa(client)
+    crear_producto(client)
+    r = movimiento(client, "ingreso", [(1, "10")], chofer="Juan Pérez", transporte="Transportes Sur",
+                   patente_camion="ab 123 cd", patente_semi="ac-456-de", observaciones="Llegó bien")
+    assert r.status_code == 302
+    texto = client.get(r.headers["Location"]).get_data(as_text=True)
+    assert "Juan Pérez" in texto and "AB123CD" in texto and "AC456DE" in texto and "Llegó bien" in texto
+    form = client.get("/movimientos/nuevo/egreso").get_data(as_text=True)
+    assert '<option value="Juan Pérez">' in form and '<option value="Transportes Sur">' in form
+    # Filtro por patente (aunque se escriba con espacios) y por chofer
+    assert ">R-1<" in client.get("/movimientos?transporte=AB 123").get_data(as_text=True)
+    assert ">R-1<" not in client.get("/movimientos?transporte=Gomez").get_data(as_text=True)
+    ws = load_workbook(BytesIO(client.get("/movimientos/excel").data)).active
+    encabezados = [c.value for c in ws[1]]
+    assert ws.cell(2, encabezados.index("Chofer") + 1).value == "Juan Pérez"
+    assert ws.cell(2, encabezados.index("Patente semi") + 1).value == "AC456DE"
+
+
+def test_movimientos_debe_haber_y_totales(app, client):
+    crear_empresa(client)
+    crear_producto(client)                       # cajas
+    crear_producto_pallet(client, codigo="B1")   # Bolsas, producto 2
+    movimiento(client, "ingreso", [(1, "10"), (2, "100")])
+    movimiento(client, "egreso", [(1, "4", 1)], remito="E-1")
+    movimiento(client, "egreso", [(2, "30", 2)], remito="E-2")
+    movimiento(client, "egreso", [(2, "5", 2)], remito="E-3")
+    client.post("/movimientos/4/anular", data={"motivo": "error"})   # E-3 no cuenta
+    with app.app_context():
+        from stock.rutas import _totales_movimientos
+        f = {"empresa_id": None, "tipo": "", "desde": "", "hasta": "", "remito": "", "producto": "",
+             "transporte": "", "ver_anulados": True}
+        totales = {t["unidad"]: t for t in _totales_movimientos(f)}
+    assert totales["cajas"]["ingresos"] == 10 and totales["cajas"]["egresos"] == 4
+    assert totales["Bolsas"]["ingresos"] == 100 and totales["Bolsas"]["egresos"] == 30
+    assert totales["Bolsas"]["diferencia"] == 70
+    texto = client.get("/movimientos").get_data(as_text=True)
+    assert "Ingresos (debe)" in texto and "Egresos (haber)" in texto and "Total Bolsas" in texto
+    ws = load_workbook(BytesIO(client.get("/movimientos/excel").data)).active
+    valores = [[c.value for c in fila] for fila in ws.iter_rows()]
+    total_bolsas = next(f for f in valores if f[0] == "Total Bolsas")
+    assert total_bolsas[8:10] == [100, 30]
+    diferencia = next(f for f in valores if f[0] and str(f[0]).startswith("Diferencia Bolsas"))
+    assert diferencia[8] == 70
+
+
+def test_stock_filtra_y_detalla_por_lote(client):
+    crear_empresa(client)
+    crear_producto(client, codigo="A1")
+    crear_producto(client, codigo="A2")
+    movimiento(client, "ingreso", [(1, "10", "LOTE-111"), (1, "5", "LOTE-222"), (2, "7", "OTRO-9")])
+    texto = client.get("/?lote=111").get_data(as_text=True)
+    assert "Lote LOTE-111" in texto and "LOTE-222" not in texto and ">A2<" not in texto
+    texto = client.get("/?ver_lotes=1").get_data(as_text=True)
+    assert "Lote LOTE-111" in texto and "Lote LOTE-222" in texto and "Lote OTRO-9" in texto
+    ws = load_workbook(BytesIO(client.get("/stock/excel?ver_lotes=1").data)).active
+    assert ws["D1"].value == "Lote" and ws.max_row == 4
+
+
+def test_migracion_de_base_vieja(tmp_path):
+    """Una base creada por la primera versión se actualiza sola, con copia de respaldo antes."""
+    import sqlite3
+    from stock.db import ESQUEMA, MIGRACIONES
+    ruta = tmp_path / "datos" / "stock.db"
+    ruta.parent.mkdir()
+    con = sqlite3.connect(ruta)
+    con.executescript(ESQUEMA)
+    con.executescript("""
+        INSERT INTO empresas (nombre) VALUES ('Milberg');
+        INSERT INTO productos (empresa_id, codigo, descripcion, unidad) VALUES (1, 'M1', 'Resina', 'bolsas');
+        INSERT INTO lotes (producto_id, lote) VALUES (1, 'L1');
+        INSERT INTO movimientos (tipo, fecha, remito, empresa_id) VALUES ('INGRESO', '2026-11-10', 'R1', 1);
+        INSERT INTO movimiento_items (movimiento_id, producto_id, lote_id, cantidad) VALUES (1, 1, 1, 25);
+    """)
+    con.commit()
+    con.close()
+    app = create_app({"TESTING": True, "DATABASE": str(ruta)})
+    with app.app_context():
+        db = get_db()
+        assert db.execute("PRAGMA user_version").fetchone()[0] == len(MIGRACIONES)
+        assert stock_por_id([1])[1] == 25
+        nombres = [e["nombre"].lower() for e in envases()]
+        assert nombres.count("bolsas") == 1 and "cisternas" in nombres
+        assert db.execute("SELECT unidad FROM productos").fetchone()[0] == "Bolsas"
+        columnas = [c[1] for c in db.execute("PRAGMA table_info(movimientos)")]
+        assert {"chofer", "transporte", "patente_camion", "patente_semi"} <= set(columnas)
+    respaldos = list((tmp_path / "datos" / "respaldos").glob("antes-de-actualizar-*.db"))
+    assert len(respaldos) == 1
+    viejo = sqlite3.connect(respaldos[0])
+    assert viejo.execute("SELECT COUNT(*) FROM movimiento_items").fetchone()[0] == 1
+    viejo.close()
+    # Al volver a abrir no migra ni respalda de nuevo.
+    create_app({"TESTING": True, "DATABASE": str(ruta)})
+    assert len(list((tmp_path / "datos" / "respaldos").glob("*.db"))) == 1
+
+
+def test_importar_con_envase_y_por_pallet(app, client):
+    archivo = planilla(
+        [("Copsa", "C-1", "Solvente", "Tambores de chapa", 4, "", "", 10)],
+        encabezados=("Empresa", "Código", "Descripción", "Envase", "Por pallet", "Lote", "Vencimiento", "Cantidad"),
+    )
+    assert "Importación terminada" in importar(client, archivo).get_data(as_text=True)
+    with app.app_context():
+        p = get_db().execute("SELECT unidad, unidades_por_pallet FROM productos").fetchone()
+        assert p["unidad"] == "Tambores de chapa" and p["unidades_por_pallet"] == 4
+
+
+def test_respaldo_diario(tmp_path):
+    import os
+    from stock.db import respaldo_diario
+    ruta = tmp_path / "stock.db"
+    create_app({"TESTING": True, "DATABASE": str(ruta)})
+    carpeta = tmp_path / "respaldos"
+    carpeta.mkdir()
+    for dia in range(1, 35):  # copias viejas de otros días
+        (carpeta / f"stock-2020-01-{dia:02d}.db").write_bytes(b"")
+    destino = respaldo_diario(str(ruta))
+    assert os.path.exists(destino)
+    assert len(list(carpeta.glob("stock-*.db"))) == 30
+    assert respaldo_diario(str(ruta)) == destino  # mismo día: no duplica

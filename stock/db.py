@@ -1,9 +1,12 @@
 """Base de datos (SQLite): un solo archivo, fácil de respaldar."""
 import os
 import sqlite3
+from datetime import datetime
 
 from flask import current_app, g
 
+# Esquema de la primera versión. No se modifica: los cambios posteriores van en MIGRACIONES,
+# así las bases que ya tienen datos se actualizan solas al abrir el programa.
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS empresas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,13 +83,97 @@ def close_db(_e=None):
         db.close()
 
 
+ENVASES_INICIALES = [
+    "Bolsas", "Tambores de chapa", "Tambores de plástico", "Cisternas", "Bidones",
+    "Cajas", "Baldes", "Big bags", "Unidades",
+]
+
+# Cada migración se aplica una sola vez, en orden. PRAGMA user_version guarda la última aplicada.
+MIGRACIONES = [
+    # 1: tipos de envase, unidades por pallet y datos del transporte en cada remito.
+    """
+    CREATE TABLE IF NOT EXISTS envases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        activo INTEGER NOT NULL DEFAULT 1
+    );
+    -- 'bolsas' -> 'Bolsas', para que la lista quede pareja con los tipos nuevos.
+    UPDATE productos SET unidad = UPPER(SUBSTR(TRIM(unidad), 1, 1)) || SUBSTR(TRIM(unidad), 2)
+        WHERE TRIM(unidad) <> '';
+    INSERT OR IGNORE INTO envases (nombre)
+        SELECT DISTINCT unidad FROM productos WHERE unidad <> '';
+    """
+    + "".join(f"INSERT OR IGNORE INTO envases (nombre) VALUES ('{e}');\n" for e in ENVASES_INICIALES)
+    + """
+    ALTER TABLE productos ADD COLUMN unidades_por_pallet REAL;
+    ALTER TABLE movimientos ADD COLUMN chofer TEXT;
+    ALTER TABLE movimientos ADD COLUMN transporte TEXT;
+    ALTER TABLE movimientos ADD COLUMN patente_camion TEXT;
+    ALTER TABLE movimientos ADD COLUMN patente_semi TEXT;
+    """,
+]
+
+
+def version_esquema(db):
+    return db.execute("PRAGMA user_version").fetchone()[0]
+
+
+def respaldar(ruta_db, carpeta, nombre):
+    """Copia segura de la base (aunque esté en uso) a carpeta/nombre."""
+    os.makedirs(carpeta, exist_ok=True)
+    destino = os.path.join(carpeta, nombre)
+    origen = sqlite3.connect(ruta_db)
+    copia = sqlite3.connect(destino)
+    try:
+        origen.backup(copia)
+    finally:
+        copia.close()
+        origen.close()
+    return destino
+
+
+def respaldo_diario(ruta_db, cantidad=30):
+    """Guarda una copia por día en datos/respaldos y deja solo las últimas `cantidad`."""
+    if not os.path.exists(ruta_db):
+        return None
+    carpeta = os.path.join(os.path.dirname(ruta_db), "respaldos")
+    nombre = f"stock-{datetime.now():%Y-%m-%d}.db"
+    destino = os.path.join(carpeta, nombre)
+    if not os.path.exists(destino):
+        respaldar(ruta_db, carpeta, nombre)
+    diarios = sorted(f for f in os.listdir(carpeta) if f.startswith("stock-") and f.endswith(".db"))
+    for viejo in diarios[:-cantidad]:
+        os.remove(os.path.join(carpeta, viejo))
+    return destino
+
+
 def init_db():
-    get_db().executescript(ESQUEMA)
+    db = get_db()
+    tenia_datos = db.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'empresas'"
+    ).fetchone()[0]
+    db.executescript(ESQUEMA)
+    version = version_esquema(db)
+    if version >= len(MIGRACIONES):
+        return
+    ruta = current_app.config["DATABASE"]
+    if tenia_datos and os.path.exists(ruta):
+        # Antes de cambiar la estructura de una base con datos, guardar una copia.
+        sello = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        respaldar(ruta, os.path.join(os.path.dirname(ruta), "respaldos"),
+                  f"antes-de-actualizar-v{version}_{sello}.db")
+    for numero, sql in enumerate(MIGRACIONES[version:], start=version + 1):
+        try:
+            db.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version = {numero};\nCOMMIT;")
+        except Exception:
+            if db.in_transaction:
+                db.rollback()
+            raise
 
 
 # Stock = ingresos - egresos (sin contar remitos anulados).
 SQL_STOCK = """
-SELECT p.id, p.codigo, p.descripcion, p.unidad, p.stock_minimo, p.activo,
+SELECT p.id, p.codigo, p.descripcion, p.unidad, p.stock_minimo, p.activo, p.unidades_por_pallet,
        e.id AS empresa_id, e.nombre AS empresa,
        COALESCE(SUM(CASE WHEN m.tipo = 'INGRESO' THEN i.cantidad
                          WHEN m.tipo = 'EGRESO' THEN -i.cantidad END), 0) AS stock,
@@ -127,7 +214,7 @@ def stock_por_id(producto_ids):
 
 SQL_LOTES = """
 SELECT l.id, l.lote, l.vencimiento, p.id AS producto_id, p.codigo, p.descripcion, p.unidad,
-       e.id AS empresa_id, e.nombre AS empresa,
+       p.unidades_por_pallet, e.id AS empresa_id, e.nombre AS empresa,
        COALESCE(SUM(CASE WHEN m.tipo = 'INGRESO' THEN i.cantidad
                          WHEN m.tipo = 'EGRESO' THEN -i.cantidad END), 0) AS stock
 FROM lotes l
@@ -139,9 +226,12 @@ LEFT JOIN movimientos m ON m.id = i.movimiento_id AND m.anulado = 0
 
 
 def stock_de_lotes(empresa_id=None, buscar=None, producto_id=None, lote_ids=None,
-                   solo_con_stock=True, vence_hasta=None):
+                   solo_con_stock=True, vence_hasta=None, lote=None):
     """Stock por lote. Ordenado por vencimiento (primero lo que vence antes)."""
     where, params = [], []
+    if lote:
+        where.append("l.lote LIKE ?")
+        params.append(f"%{lote}%")
     if empresa_id:
         where.append("p.empresa_id = ?")
         params.append(empresa_id)
@@ -178,8 +268,21 @@ def proximo_vencimiento_por_producto(empresa_id=None):
     """{producto_id: fecha de vencimiento más cercana entre los lotes con stock}."""
     res = {}
     for r in stock_de_lotes(empresa_id=empresa_id):
-        if r["vencimiento"] and r["producto_id"] not in res:
-            res[r["producto_id"]] = r["vencimiento"]
-        elif r["vencimiento"] and r["vencimiento"] < res[r["producto_id"]]:
-            res[r["producto_id"]] = r["vencimiento"]
+        v = r["vencimiento"]
+        if v and (r["producto_id"] not in res or v < res[r["producto_id"]]):
+            res[r["producto_id"]] = v
     return res
+
+
+def envases(solo_activos=False):
+    sql = "SELECT * FROM envases"
+    if solo_activos:
+        sql += " WHERE activo = 1"
+    return get_db().execute(sql + " ORDER BY nombre").fetchall()
+
+
+def asegurar_envase(nombre):
+    """Agrega el tipo de envase a la lista si todavía no está. No hace commit."""
+    nombre = (nombre or "").strip()
+    if nombre:
+        get_db().execute("INSERT OR IGNORE INTO envases (nombre) VALUES (?)", (nombre,))

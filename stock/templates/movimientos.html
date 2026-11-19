@@ -6,6 +6,7 @@
   <a class="boton verde" href="{{ url_for('stock.movimiento_nuevo', tipo='ingreso') }}">+ Cargar ingreso</a>
   <a class="boton rojo" href="{{ url_for('stock.movimiento_nuevo', tipo='egreso') }}">− Cargar egreso</a>
   <a class="boton secundario" href="{{ url_for('stock.movimientos_excel', **request.args) }}">⬇ Exportar a Excel</a>
+  <button class="boton secundario" onclick="window.print()">🖨 Imprimir</button>
 </div>
 <div class="tarjeta">
   <form class="filtros" method="get">
@@ -16,41 +17,70 @@
       </select>
     </div>
     <div class="campo"><label>Tipo</label>
-      <select name="tipo"><option value="">Todos</option>
-        {% for k, v in tipos.items() %}<option value="{{ k }}" {{ 'selected' if k == filtros.tipo }}>{{ v }}</option>{% endfor %}
+      <select name="tipo"><option value="">Ingresos y egresos</option>
+        {% for k, v in tipos.items() %}<option value="{{ k }}" {{ 'selected' if k == filtros.tipo }}>Solo {{ v|lower }}s</option>{% endfor %}
       </select>
     </div>
     <div class="campo"><label>Desde</label><input type="date" name="desde" value="{{ filtros.desde }}"></div>
     <div class="campo"><label>Hasta</label><input type="date" name="hasta" value="{{ filtros.hasta }}"></div>
     <div class="campo"><label>Remito</label><input name="remito" value="{{ filtros.remito }}"></div>
     <div class="campo"><label>Producto</label><input name="producto" value="{{ filtros.producto }}" placeholder="Código, descripción o lote"></div>
+    <div class="campo"><label>Transporte</label><input name="transporte" value="{{ filtros.transporte }}" placeholder="Chofer, empresa o patente"></div>
     <label class="check"><input type="checkbox" name="ver_anulados" value="1" {{ 'checked' if filtros.ver_anulados }}> Ver anulados</label>
     <button class="boton">Filtrar</button>
     <a href="{{ url_for('stock.movimientos') }}">Limpiar</a>
   </form>
 </div>
+
+{% if totales %}
+<div class="totales">
+  {% for t in totales %}
+  <div class="tarjeta">
+    <div class="etiqueta">{{ t.unidad }}</div>
+    <div class="fila-total"><span>Ingresos (debe)</span><strong class="debe">{{ t.ingresos|num }}</strong></div>
+    <div class="fila-total"><span>Egresos (haber)</span><strong class="haber">{{ t.egresos|num }}</strong></div>
+    <div class="fila-total diferencia"><span>Diferencia</span><strong>{{ t.diferencia|num }}</strong></div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 <div class="tabla">
 <table>
-  <thead><tr><th>Fecha</th><th>Tipo</th><th>Remito</th><th>Empresa</th><th>Código</th><th>Descripción</th><th>Lote</th><th>Vto.</th><th class="num">Cantidad</th><th>Unidad</th><th>Observaciones</th></tr></thead>
+  <thead><tr><th>Fecha</th><th>Remito</th><th>Empresa</th><th>Código</th><th>Descripción</th><th>Lote</th><th>Envase</th>
+    <th class="num debe">Ingresos (debe)</th><th class="num haber">Egresos (haber)</th><th>Transporte</th></tr></thead>
   <tbody>
   {% for r in filas %}
     <tr class="{{ 'anulado' if r.anulado }}">
-      <td>{{ r.fecha|fecha }}</td>
-      <td><span class="etq {{ r.tipo }}">{{ tipos[r.tipo] }}</span>{% if r.anulado %} <span class="etq anulado">anulado</span>{% endif %}</td>
-      <td><a href="{{ url_for('stock.movimiento_detalle', movimiento_id=r.id) }}">{{ r.remito }}</a></td>
+      <td class="nowrap">{{ r.fecha|fecha }}</td>
+      <td class="nowrap"><a href="{{ url_for('stock.movimiento_detalle', movimiento_id=r.id) }}">{{ r.remito }}</a>{% if r.anulado %} <span class="etq anulado">anulado</span>{% endif %}</td>
       <td>{{ r.empresa }}</td>
-      <td><a href="{{ url_for('stock.producto_ficha', producto_id=r.producto_id) }}">{{ r.codigo }}</a></td>
+      <td class="nowrap"><a href="{{ url_for('stock.producto_ficha', producto_id=r.producto_id) }}">{{ r.codigo }}</a></td>
       <td>{{ r.descripcion }}</td>
-      <td>{{ r.lote }}</td><td>{{ r.vencimiento|fecha }}</td>
-      <td class="num">{{ r.cantidad|num }}</td>
+      <td>{{ r.lote }}</td>
       <td>{{ r.unidad }}</td>
-      <td>{{ r.observaciones or '' }}</td>
+      <td class="num debe">{{ r.cantidad|num if r.tipo == 'INGRESO' else '' }}</td>
+      <td class="num haber">{{ r.cantidad|num if r.tipo == 'EGRESO' else '' }}</td>
+      <td class="chico">{{ r.chofer or '' }}{% if r.patente_camion %}{{ ' · ' if r.chofer }}{{ r.patente_camion }}{% endif %}</td>
     </tr>
   {% else %}
-    <tr><td colspan="11" class="vacio">No hay movimientos con estos filtros.</td></tr>
+    <tr><td colspan="10" class="vacio">No hay movimientos con estos filtros.</td></tr>
   {% endfor %}
   </tbody>
+  {% if filas and totales %}
+  <tfoot>
+    {% for t in totales %}
+    <tr class="total">
+      <td colspan="7">Total {{ t.unidad }}</td>
+      <td class="num debe">{{ t.ingresos|num }}</td>
+      <td class="num haber">{{ t.egresos|num }}</td>
+      <td>Diferencia: <strong>{{ t.diferencia|num }}</strong></td>
+    </tr>
+    {% endfor %}
+  </tfoot>
+  {% endif %}
 </table>
 </div>
-{% if filas|length >= 5000 %}<p class="ayuda">Se muestran los últimos 5.000 renglones. Usá los filtros para acotar.</p>{% endif %}
+<p class="ayuda">Ingresos (debe) es lo que entró al depósito y egresos (haber) lo que salió. Los totales se separan por tipo de envase y no cuentan los remitos anulados.</p>
+{% if filas|length >= 5000 %}<p class="ayuda">Se muestran los últimos 5.000 renglones (los totales sí cuentan todo). Usá los filtros para acotar.</p>{% endif %}
 {% endblock %}

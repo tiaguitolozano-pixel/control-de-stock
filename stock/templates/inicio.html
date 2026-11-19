@@ -27,36 +27,57 @@
       </select>
     </div>
     <div class="campo"><label>Buscar producto</label><input name="buscar" value="{{ filtros.buscar }}" placeholder="Código o descripción"></div>
+    <div class="campo corto"><label>Lote</label><input name="lote" value="{{ filtros.lote }}" placeholder="N° de lote"></div>
+    <label class="check"><input type="checkbox" name="ver_lotes" value="1" {{ 'checked' if filtros.ver_lotes }} onchange="this.form.submit()"> Ver detalle por lote</label>
     <label class="check"><input type="checkbox" name="solo_con_stock" value="1" {{ 'checked' if filtros.solo_con_stock }} onchange="this.form.submit()"> Solo con stock</label>
     <button class="boton">Filtrar</button>
     <a href="{{ url_for('stock.inicio') }}">Limpiar</a>
   </form>
 </div>
 
+{% set detallar = filtros.ver_lotes or filtros.lote %}
 <div class="tabla">
 <table>
-  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th class="num">Stock</th><th>Unidad</th><th class="num">Mínimo</th><th>Próx. vencimiento</th><th>Último mov.</th></tr></thead>
+  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th class="num">Stock</th><th>Envase</th><th>En pallets</th><th class="num">Mínimo</th><th>Próx. vencimiento</th><th>Último mov.</th></tr></thead>
   <tbody>
   {% for r in filas %}
-    <tr class="{{ 'bajo' if r.stock_minimo > 0 and r.stock < r.stock_minimo }}">
+    <tr class="{{ 'bajo' if r.stock_minimo > 0 and r.stock < r.stock_minimo }} {{ 'con-lotes' if detallar }}">
       <td>{{ r.empresa }}</td>
-      <td><a href="{{ url_for('stock.producto_ficha', producto_id=r.id) }}">{{ r.codigo }}</a></td>
+      <td class="nowrap"><a href="{{ url_for('stock.producto_ficha', producto_id=r.id) }}">{{ r.codigo }}</a></td>
       <td>{{ r.descripcion }} {% if not r.activo %}<span class="etq inactivo">inactivo</span>{% endif %}</td>
       <td class="num"><strong>{{ r.stock|num }}</strong></td>
       <td>{{ r.unidad }}</td>
+      <td class="pallets">{{ r.stock|pallets(r.unidades_por_pallet, r.unidad) }}</td>
       <td class="num">{{ r.stock_minimo|num if r.stock_minimo else '' }}</td>
       {% set v = vtos.get(r.id) %}
       <td class="{{ 'vencido' if v and v < hoy_iso else ('por-vencer' if v and v <= limite_aviso) }}">{{ v|fecha }}</td>
       <td>{{ r.ultimo_mov|fecha }}</td>
     </tr>
+    {% if detallar %}
+      {% for l in lotes.get(r.id, []) %}
+        {% set lv = l.vencimiento %}
+        <tr class="sublote">
+          <td></td>
+          <td colspan="2">↳ {{ ('Lote ' ~ l.lote) if l.lote else 'Sin lote' }}</td>
+          <td class="num">{{ l.stock|num }}</td>
+          <td>{{ l.unidad }}</td>
+          <td class="pallets">{{ l.stock|pallets(l.unidades_por_pallet, l.unidad) }}</td>
+          <td></td>
+          <td class="{{ 'vencido' if lv and lv < hoy_iso else ('por-vencer' if lv and lv <= limite_aviso) }}">{{ lv|fecha }}{% if lv and lv < hoy_iso %} <span class="etq EGRESO">vencido</span>{% endif %}</td>
+          <td></td>
+        </tr>
+      {% endfor %}
+    {% endif %}
   {% else %}
-    <tr><td colspan="8" class="vacio">
+    <tr><td colspan="9" class="vacio">
       {% if not empresas %}Todavía no hay empresas. <a href="{{ url_for('stock.empresa_form') }}">Cargá la primera empresa</a> para empezar.
+      {% elif filtros.lote %}No hay stock en ningún lote que coincida con "{{ filtros.lote }}". Para ver lotes que ya salieron, buscalo en <a href="{{ url_for('stock.movimientos', producto=filtros.lote) }}">Movimientos</a>.
       {% else %}No hay productos para mostrar con estos filtros.{% endif %}
     </td></tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
-<p class="ayuda">Las filas en amarillo están por debajo del stock mínimo configurado en el producto.</p>
+<p class="ayuda">Las filas en amarillo están por debajo del stock mínimo configurado en el producto.
+  "En pallets" aparece en los productos que tienen cargadas las unidades por pallet.</p>
 {% endblock %}

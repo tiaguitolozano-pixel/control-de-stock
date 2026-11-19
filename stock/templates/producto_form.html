@@ -14,10 +14,21 @@
     </div>
     <div class="campo"><label>Código *</label><input name="codigo" value="{{ producto.codigo or '' }}" required></div>
     <div class="campo"><label>Descripción *</label><input name="descripcion" value="{{ producto.descripcion or '' }}" required></div>
-    <div class="campo"><label>Unidad</label>
-      <input name="unidad" value="{{ producto.unidad or 'unidades' }}" list="unidades">
-      <datalist id="unidades"><option>unidades</option><option>cajas</option><option>pallets</option><option>bultos</option><option>kg</option><option>litros</option><option>metros</option></datalist>
+    {% set nombres = envases|map(attribute='nombre')|map('lower')|list %}
+    {% set actual = producto.unidad or '' %}
+    <div class="campo"><label>Tipo de envase *</label>
+      <select name="unidad" id="envase" required>
+        <option value="">Elegí…</option>
+        {% for v in envases %}<option value="{{ v.nombre }}" {{ 'selected' if v.nombre|lower == actual|lower }}>{{ v.nombre }}</option>{% endfor %}
+        {% if actual and actual|lower not in nombres %}<option value="{{ actual }}" selected>{{ actual }}</option>{% endif %}
+        <option value="__otro__">+ Otro tipo…</option>
+      </select>
+      <input name="unidad_otra" id="envase-otro" placeholder="Escribí el tipo de envase nuevo" style="display:none; margin-top:6px">
+      <div class="ayuda">Bolsas, tambores de chapa, tambores de plástico, cisternas… <a href="{{ url_for('stock.envases_lista') }}">Ver la lista</a></div>
     </div>
+    <div class="campo"><label>Unidades por pallet (opcional)</label>
+      <input name="unidades_por_pallet" value="{{ producto.unidades_por_pallet|num if producto.unidades_por_pallet else '' }}" inputmode="decimal" placeholder="Ej.: 40">
+      <div class="ayuda">Cuántas bolsas, tambores, etc. entran en un pallet. Sirve para ver las cantidades en pallets.</div></div>
     <div class="campo"><label>Stock mínimo (opcional)</label><input name="stock_minimo" value="{{ producto.stock_minimo|num if producto.stock_minimo else '' }}" inputmode="decimal">
       <div class="ayuda">Si el stock baja de este número, se marca en amarillo.</div></div>
   </div>
@@ -27,4 +38,19 @@
   <button class="boton">Guardar</button>
   <a class="boton secundario" href="{{ volver or url_for('stock.productos') }}">Cancelar</a>
 </form>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const sel = document.getElementById('envase'), otro = document.getElementById('envase-otro');
+  function mostrar() {
+    const es = sel.value === '__otro__';
+    otro.style.display = es ? '' : 'none';
+    otro.required = es;
+    if (es) otro.focus();
+  }
+  sel.addEventListener('change', mostrar);
+  mostrar();
+})();
+</script>
 {% endblock %}

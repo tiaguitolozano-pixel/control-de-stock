@@ -73,3 +73,31 @@ td.por-vencer { color: #8a6100; font-weight: 600; }
 tr.fila-vencida td { background: var(--rojo-claro); }
 .errores { background: var(--rojo-claro); color: var(--rojo); padding: 12px 16px 12px 32px; border-radius: 6px; }
 .errores li { margin: 2px 0; }
+/* --- segunda ronda --- */
+.subtitulo { font-size: 15px; margin: 18px 0 10px; color: var(--azul); border-top: 1px solid var(--borde); padding-top: 14px; }
+textarea { resize: vertical; }
+input.patente { text-transform: uppercase; }
+.campo.corto { min-width: 120px; max-width: 160px; }
+td.pallets { color: var(--gris); font-size: 13px; white-space: nowrap; }
+tr.sublote td { background: #f8fafc; font-size: 13px; color: #3c4650; border-bottom-style: dashed; }
+tr.sublote td:nth-child(2) { padding-left: 24px; }
+tr.con-lotes td { border-bottom-color: #eef1f4; }
+th.debe, td.debe, strong.debe { color: var(--verde); }
+th.haber, td.haber, strong.haber { color: var(--rojo); }
+td.debe, td.haber { font-weight: 600; }
+tfoot tr.total td { background: var(--azul-claro); font-weight: 700; border-top: 2px solid var(--azul); }
+.totales { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.totales .tarjeta { margin: 0; padding: 12px 16px; }
+.totales .etiqueta { font-weight: 700; margin-bottom: 6px; }
+.fila-total { display: flex; justify-content: space-between; padding: 2px 0; font-variant-numeric: tabular-nums; }
+.fila-total.diferencia { border-top: 1px solid var(--borde); margin-top: 4px; padding-top: 6px; }
+td.chico { font-size: 13px; color: var(--gris); }
+.conv { font-size: 12px; color: var(--gris); margin-top: 3px; min-height: 14px; white-space: nowrap; }
+.tabla-renglones { overflow-x: auto; }
+.renglones { min-width: 720px; }
+.renglones input:disabled { background: #f1f3f5; }
+form.en-linea { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
+form.en-linea input { width: 240px; }
+tr.inactiva td { color: var(--gris); }
+.observacion { white-space: pre-wrap; margin: 0; }
+td.nowrap { white-space: nowrap; }

@@ -20,7 +20,8 @@
     <p>La planilla tiene que tener una fila de encabezados con estas columnas (el orden no importa):</p>
     <ul>
       <li><strong>Empresa</strong>, <strong>Código</strong> y <strong>Cantidad</strong> (obligatorias)</li>
-      <li><strong>Descripción</strong> (obligatoria si el producto es nuevo), <strong>Unidad</strong>, <strong>Lote</strong> y <strong>Vencimiento</strong> (opcionales)</li>
+      <li><strong>Descripción</strong> (obligatoria si el producto es nuevo)</li>
+      <li><strong>Envase</strong> (bolsas, tambores de chapa…), <strong>Por pallet</strong> (unidades que entran en un pallet), <strong>Lote</strong> y <strong>Vencimiento</strong> (opcionales)</li>
     </ul>
     <p>Si el mismo producto tiene varios lotes, va una fila por lote.</p>
     <a class="boton secundario" href="{{ url_for('stock.importar_plantilla') }}">⬇ Bajar planilla de ejemplo</a>

@@ -28,7 +28,7 @@
 </div>
 <div class="tabla">
 <table>
-  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Stock</th><th>Unidad</th></tr></thead>
+  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Stock</th><th>Envase</th><th>En pallets</th></tr></thead>
   <tbody>
   {% for r in filas %}
     {% set v = r.vencimiento %}
@@ -40,9 +40,10 @@
       <td>{{ v|fecha }}{% if v and v < hoy_iso %} <span class="etq EGRESO">vencido</span>{% endif %}</td>
       <td class="num"><strong>{{ r.stock|num }}</strong></td>
       <td>{{ r.unidad }}</td>
+      <td class="pallets">{{ r.stock|pallets(r.unidades_por_pallet, r.unidad) }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="7" class="vacio">No hay lotes con stock para estos filtros.</td></tr>
+    <tr><td colspan="8" class="vacio">No hay lotes con stock para estos filtros.</td></tr>
   {% endfor %}
   </tbody>
 </table>

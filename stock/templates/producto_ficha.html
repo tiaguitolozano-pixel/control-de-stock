@@ -3,8 +3,10 @@
 {% block contenido %}
 <h1>{{ p.codigo }} · {{ p.descripcion }}</h1>
 <div class="resumen">
-  <div class="tarjeta"><div class="valor">{{ p.stock|num }}</div><div class="etiqueta">Stock actual ({{ p.unidad }})</div></div>
+  <div class="tarjeta"><div class="valor">{{ p.stock|num }}</div><div class="etiqueta">Stock actual ({{ p.unidad }})</div>
+    {% if p.unidades_por_pallet %}<div class="etiqueta">{{ p.stock|pallets(p.unidades_por_pallet, p.unidad) or '0 pallets' }}</div>{% endif %}</div>
   <div class="tarjeta"><div class="valor" style="font-size:20px">{{ p.empresa }}</div><div class="etiqueta">Empresa</div></div>
+  <div class="tarjeta"><div class="valor">{{ p.unidades_por_pallet|num if p.unidades_por_pallet else '—' }}</div><div class="etiqueta">{{ p.unidad }} por pallet</div></div>
   <div class="tarjeta"><div class="valor">{{ p.stock_minimo|num if p.stock_minimo else '—' }}</div><div class="etiqueta">Stock mínimo</div></div>
 </div>
 <div class="acciones">
@@ -14,14 +16,15 @@
 <h2>Stock por lote</h2>
 <div class="tabla">
 <table>
-  <thead><tr><th>Lote</th><th>Vencimiento</th><th class="num">Stock</th></tr></thead>
+  <thead><tr><th>Lote</th><th>Vencimiento</th><th class="num">Stock</th><th>En pallets</th></tr></thead>
   <tbody>
   {% for l in lotes %}
     {% set v = l.vencimiento %}
     <tr class="{{ 'fila-vencida' if v and v < hoy_iso else ('bajo' if v and v <= limite_aviso) }}">
-      <td>{{ l.lote or '(sin lote)' }}</td><td>{{ v|fecha }}</td><td class="num"><strong>{{ l.stock|num }}</strong></td></tr>
+      <td>{{ l.lote or '(sin lote)' }}</td><td>{{ v|fecha }}</td><td class="num"><strong>{{ l.stock|num }}</strong></td>
+      <td class="pallets">{{ l.stock|pallets(p.unidades_por_pallet, p.unidad) }}</td></tr>
   {% else %}
-    <tr><td colspan="3" class="vacio">Sin stock.</td></tr>
+    <tr><td colspan="4" class="vacio">Sin stock.</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -29,23 +32,29 @@
 <h2>Historial (lo más nuevo arriba)</h2>
 <div class="tabla">
 <table>
-  <thead><tr><th>Fecha</th><th>Tipo</th><th>Remito</th><th>Lote</th><th>Vencimiento</th><th class="num">Entra</th><th class="num">Sale</th><th class="num">Saldo</th><th>Observaciones</th></tr></thead>
+  <thead><tr><th>Fecha</th><th>Remito</th><th>Lote</th><th>Vencimiento</th><th class="num debe">Ingresos (debe)</th><th class="num haber">Egresos (haber)</th><th class="num">Saldo</th><th>Observaciones</th></tr></thead>
   <tbody>
   {% for l in lineas %}
     <tr>
       <td>{{ l.fecha|fecha }}</td>
-      <td><span class="etq {{ l.tipo }}">{{ 'Ingreso' if l.tipo == 'INGRESO' else 'Egreso' }}</span></td>
       <td><a href="{{ url_for('stock.movimiento_detalle', movimiento_id=l.id) }}">{{ l.remito }}</a></td>
       <td>{{ l.lote }}</td><td>{{ l.vencimiento|fecha }}</td>
-      <td class="num">{{ l.cantidad|num if l.tipo == 'INGRESO' else '' }}</td>
-      <td class="num">{{ l.cantidad|num if l.tipo == 'EGRESO' else '' }}</td>
+      <td class="num debe">{{ l.cantidad|num if l.tipo == 'INGRESO' else '' }}</td>
+      <td class="num haber">{{ l.cantidad|num if l.tipo == 'EGRESO' else '' }}</td>
       <td class="num"><strong>{{ l.saldo|num }}</strong></td>
       <td>{{ l.observaciones or '' }}</td>
     </tr>
   {% else %}
-    <tr><td colspan="9" class="vacio">Este producto todavía no tiene movimientos.</td></tr>
+    <tr><td colspan="8" class="vacio">Este producto todavía no tiene movimientos.</td></tr>
   {% endfor %}
   </tbody>
+  {% if lineas %}
+  {% set ing = lineas|selectattr('tipo', 'equalto', 'INGRESO')|sum(attribute='cantidad') %}
+  {% set egr = lineas|selectattr('tipo', 'equalto', 'EGRESO')|sum(attribute='cantidad') %}
+  <tfoot>
+    <tr class="total"><td colspan="4">Totales</td><td class="num debe">{{ ing|num }}</td><td class="num haber">{{ egr|num }}</td><td class="num">{{ (ing - egr)|num }}</td><td></td></tr>
+  </tfoot>
+  {% endif %}
 </table>
 </div>
 {% endblock %}

@@ -19,6 +19,7 @@ sys.path.insert(0, CARPETA)
 from waitress import serve  # noqa: E402
 
 from stock import create_app  # noqa: E402
+from stock.db import respaldo_diario  # noqa: E402
 
 PUERTO = int(os.environ.get("STOCK_PUERTO", "5000"))
 
@@ -36,11 +37,18 @@ def ip_local():
 
 if __name__ == "__main__":
     app = create_app()
+    try:
+        respaldo = respaldo_diario(app.config["DATABASE"])
+    except OSError as error:  # que un problema con la copia no impida usar el programa
+        respaldo = None
+        print(f" ATENCIÓN: no se pudo guardar la copia de respaldo del día ({error}).")
     print("=" * 60)
     print(" Control de stock funcionando.")
     print(f" En esta PC:          http://localhost:{PUERTO}")
     print(f" Desde otras PCs:     http://{ip_local()}:{PUERTO}")
     print(f" Datos guardados en:  {app.config['DATABASE']}")
+    if respaldo:
+        print(f" Copia del día en:    {respaldo}")
     print(" Para cerrar el programa, cerrá esta ventana.")
     print("=" * 60)
     if os.environ.get("STOCK_NO_ABRIR") != "1":

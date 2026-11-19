@@ -5,28 +5,9 @@ from datetime import date
 from flask import Flask
 
 from . import db
+from .formato import formato_fecha, formato_numero, texto_pallets
 
-
-def formato_numero(valor):
-    """1234.5 -> '1.234,5' ; 10.0 -> '10' (formato argentino)."""
-    if valor is None:
-        return ""
-    valor = float(valor)
-    if valor == int(valor):
-        texto = f"{int(valor):,}"
-    else:
-        texto = f"{valor:,.3f}".rstrip("0").rstrip(".")
-    return texto.replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def formato_fecha(valor):
-    """'2026-11-16' -> '16/11/2026'."""
-    if not valor:
-        return ""
-    partes = str(valor)[:10].split("-")
-    if len(partes) != 3:
-        return valor
-    return f"{partes[2]}/{partes[1]}/{partes[0]}"
+__all__ = ["create_app", "formato_fecha", "formato_numero"]
 
 
 def create_app(config=None):
@@ -43,6 +24,7 @@ def create_app(config=None):
     app.teardown_appcontext(db.close_db)
     app.jinja_env.filters["num"] = formato_numero
     app.jinja_env.filters["fecha"] = formato_fecha
+    app.jinja_env.filters["pallets"] = texto_pallets
     app.jinja_env.globals["hoy"] = lambda: date.today().isoformat()
 
     with app.app_context():

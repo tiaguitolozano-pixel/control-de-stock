@@ -6,21 +6,29 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
 ## Qué hace
 
 - **Empresas**: alta y edición de las empresas clientes (nombre, CUIT, contacto, teléfono).
-- **Productos**: cada empresa tiene sus productos (código, descripción, unidad y stock mínimo opcional).
-  Dos empresas pueden usar el mismo código sin mezclarse.
+- **Productos**: cada empresa tiene sus productos (código, descripción, tipo de envase, unidades por pallet
+  y stock mínimo opcional). Dos empresas pueden usar el mismo código sin mezclarse.
+- **Tipos de envase**: bolsas, tambores de chapa, tambores de plástico, cisternas, bidones, cajas… La lista se
+  puede ampliar y corregir desde Productos → Tipos de envase.
+- **Pallets**: con las unidades por pallet de cada producto, las cantidades se ven también en pallets
+  (por ejemplo, 100 bolsas = 2 pallets + 20 bolsas). Al cargar un remito se pueden escribir los pallets y la
+  cantidad se calcula sola.
 - **Lotes y vencimientos**: en cada ingreso se carga el lote y la fecha de vencimiento (opcionales).
   En los egresos se elige de qué lote sale, y se ofrece primero el que vence antes.
-- **Ingresos y egresos**: se cargan por remito (fecha, número de remito, observaciones) y pueden tener varios productos.
+- **Ingresos y egresos**: se cargan por remito (fecha, número de remito, datos del transporte: chofer, empresa de
+  transporte, patente del camión y del semi, y una observación general) y pueden tener varios productos.
+  Los choferes ya usados se autocompletan con el transporte y las patentes de su último viaje.
   - No deja sacar más de lo que hay (ni del producto ni del lote).
   - Avisa si se carga dos veces el mismo remito de ingreso.
   - Los remitos mal cargados no se borran: se **anulan** con un motivo y quedan en el historial.
 - **Stock actual** por empresa y producto, con aviso en amarillo cuando está por debajo del mínimo
-  y la fecha de vencimiento más próxima.
+  y la fecha de vencimiento más próxima. Se puede abrir el detalle por lote debajo de cada código y buscar por lote.
 - **Stock por lote**, con los vencidos en rojo y los que vencen en los próximos 60 días en amarillo.
 - **Importar desde Excel** el conteo inicial (por ejemplo, lo que sale del programa Cristal):
   crea solas las empresas y productos que falten. Hay una planilla de ejemplo para bajar.
 - **Ficha de cada producto** con todo su historial y el saldo después de cada movimiento.
-- **Historial de movimientos** con filtros (empresa, tipo, fechas, remito, producto).
+- **Historial de movimientos** tipo debe y haber (ingresos y egresos en columnas separadas) con totales por tipo
+  de envase, y filtros por empresa, tipo, fechas, remito, producto/lote y transporte (chofer o patente).
 - **Exportar a Excel** el stock y los movimientos (respeta los filtros), e imprimir.
 
 ## Cómo instalarlo (Windows)
@@ -41,12 +49,27 @@ Al arrancar, la ventana negra muestra una dirección del tipo `http://192.168.0.
 Desde cualquier otra PC conectada a la misma red, abrir esa dirección en el navegador.
 La PC donde corre el programa tiene que estar prendida. Si Windows pregunta por el firewall, elegir **Permitir acceso** en redes privadas.
 
+## Cómo actualizar a una versión nueva sin perder datos
+
+Los datos están en la carpeta **`datos`** dentro de la carpeta del programa. Para actualizar:
+
+1. Cerrar el programa (cerrar la ventana negra).
+2. Descomprimir el zip nuevo en una carpeta nueva.
+3. Copiar la carpeta `datos` de la versión vieja a la carpeta nueva.
+4. Abrir el programa nuevo con `iniciar.bat`.
+
+Al abrir la versión nueva, el programa actualiza solo la base de datos. Antes de hacerlo guarda una copia en
+`datos/respaldos/antes-de-actualizar-….db`, por si algo sale mal.
+
 ## Dónde quedan los datos y cómo hacer respaldo
 
 Todo se guarda en un solo archivo: **`datos/stock.db`** dentro de la carpeta del programa.
 Conviene que la carpeta del programa **no** esté dentro de OneDrive o Google Drive, porque la sincronización
 mientras el programa está abierto puede dañar ese archivo. Para hacer un respaldo, copiar ese archivo (por ejemplo a un pendrive o a Google Drive) con el programa cerrado.
 Para restaurar, volver a ponerlo en su lugar.
+
+Además, cada vez que se abre el programa se guarda una copia del día en `datos/respaldos/stock-AAAA-MM-DD.db`
+(se guardan las últimas 30).
 
 ## Primeros pasos
 

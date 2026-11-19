@@ -9,18 +9,28 @@
     <div><dt>Empresa</dt><dd>{{ m.empresa }}</dd></div>
     <div><dt>Fecha</dt><dd>{{ m.fecha|fecha }}</dd></div>
     <div><dt>N° de remito</dt><dd>{{ m.remito }}</dd></div>
-    <div><dt>Observaciones</dt><dd>{{ m.observaciones or '—' }}</dd></div>
     <div><dt>Cargado el</dt><dd>{{ m.creado_en|fecha }} {{ m.creado_en[11:16] }}</dd></div>
     {% if m.anulado %}<div><dt>Motivo de anulación</dt><dd>{{ m.motivo_anulacion }}</dd></div>{% endif %}
   </dl>
+  <h3 class="subtitulo">Transporte</h3>
+  <dl class="datos grilla2">
+    <div><dt>Chofer</dt><dd>{{ m.chofer or '—' }}</dd></div>
+    <div><dt>Empresa de transporte</dt><dd>{{ m.transporte or '—' }}</dd></div>
+    <div><dt>Patente camión</dt><dd>{{ m.patente_camion or '—' }}</dd></div>
+    <div><dt>Patente semi</dt><dd>{{ m.patente_semi or '—' }}</dd></div>
+  </dl>
+  <h3 class="subtitulo">Observación general</h3>
+  <p class="observacion">{{ m.observaciones or '—' }}</p>
 </div>
 <div class="tabla">
 <table>
-  <thead><tr><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Cantidad</th><th>Unidad</th></tr></thead>
+  <thead><tr><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Cantidad</th><th>Envase</th><th>En pallets</th></tr></thead>
   <tbody>
   {% for i in items %}
     <tr><td><a href="{{ url_for('stock.producto_ficha', producto_id=i.producto_id) }}">{{ i.codigo }}</a></td>
-        <td>{{ i.descripcion }}</td><td>{{ i.lote or "(sin lote)" }}</td><td>{{ i.vencimiento|fecha }}</td><td class="num">{{ i.cantidad|num }}</td><td>{{ i.unidad }}</td></tr>
+        <td>{{ i.descripcion }}</td><td>{{ i.lote or "(sin lote)" }}</td><td>{{ i.vencimiento|fecha }}</td>
+        <td class="num">{{ i.cantidad|num }}</td><td>{{ i.unidad }}</td>
+        <td class="pallets">{{ i.cantidad|pallets(i.unidades_por_pallet, i.unidad) }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
