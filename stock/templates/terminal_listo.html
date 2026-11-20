@@ -1,0 +1,12 @@
+{% extends "terminal_base.html" %}
+{% block encabezado %}Despachar{% endblock %}
+{% block contenido %}
+<div class="tarjeta listo">
+  <div class="tilde">✅</div>
+  <div><strong>Egreso guardado</strong></div>
+  <div>Remito {{ m.remito }} · {{ m.empresa }}</div>
+  <div>{{ cantidad }} pallet{{ 's' if cantidad != 1 }}</div>
+</div>
+<a class="boton" href="{{ url_for('deposito.terminal_despachar') }}">Despachar otro camión</a>
+<a class="boton secundario" href="{{ url_for('deposito.terminal') }}">Volver al menú</a>
+{% endblock %}

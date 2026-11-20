@@ -9,7 +9,11 @@
       <li>Empresas nuevas creadas: <strong>{{ resumen.empresas_nuevas }}</strong></li>
       <li>Productos nuevos creados: <strong>{{ resumen.productos_nuevos }}</strong></li>
       <li>Renglones de stock cargados: <strong>{{ resumen.renglones }}</strong>, en {{ resumen.movimientos|length }} ingreso(s) con remito "{{ form.remito }}".</li>
+      {% if resumen.pallets is defined %}<li>Pallets armados con su etiqueta: <strong>{{ resumen.pallets|length }}</strong></li>{% endif %}
     </ul>
+    {% if resumen.avisos %}<ul class="mensajes">{% for a in resumen.avisos[:30] %}<li class="aviso">{{ a }}</li>{% endfor %}
+      {% if resumen.avisos|length > 30 %}<li class="aviso">… y {{ resumen.avisos|length - 30 }} productos más sin unidades por pallet.</li>{% endif %}</ul>{% endif %}
+    {% if resumen.pallets %}<p><a class="boton verde" href="{{ url_for('deposito.etiquetas_pallets', ids=resumen.pallets|join(',')) }}" target="_blank">🖨 Imprimir las {{ resumen.pallets|length }} etiquetas</a></p>{% endif %}
     <a class="boton" href="{{ url_for('stock.inicio') }}">Ver el stock</a>
     <a class="boton secundario" href="{{ url_for('stock.movimientos', remito=form.remito) }}">Ver los ingresos creados</a>
   </div>
@@ -39,6 +43,8 @@
       <div class="campo"><label>Fecha del conteo *</label><input type="date" name="fecha" value="{{ form.fecha }}" required></div>
       <div class="campo"><label>Nombre del remito</label><input name="remito" value="{{ form.remito }}"></div>
     </div>
+    <label class="check" style="margin-bottom:12px"><input type="checkbox" name="crear_pallets" value="1" {{ 'checked' if form.crear_pallets == '1' }}>
+      Armar los pallets con su etiqueta QR (para los productos que tienen "Por pallet")</label>
     <button class="boton">Importar</button>
   </form>
 {% endif %}

@@ -10,9 +10,9 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
   y stock mínimo opcional). Dos empresas pueden usar el mismo código sin mezclarse.
 - **Tipos de envase**: bolsas, tambores de chapa, tambores de plástico, cisternas, bidones, cajas… La lista se
   puede ampliar y corregir desde Productos → Tipos de envase.
-- **Pallets**: con las unidades por pallet de cada producto, las cantidades se ven también en pallets
-  (por ejemplo, 100 bolsas = 2 pallets + 20 bolsas). Al cargar un remito se pueden escribir los pallets y la
-  cantidad se calcula sola.
+- **Equivalencia en pallets**: con las unidades por pallet de cada producto, las cantidades se ven también en
+  pallets completos (columna "Equivale a": por ejemplo, 100 bolsas = 2 pallets + 20 bolsas). Al cargar un remito
+  se pueden escribir los pallets y la cantidad se calcula sola.
 - **Lotes y vencimientos**: en cada ingreso se carga el lote y la fecha de vencimiento (opcionales).
   En los egresos se elige de qué lote sale, y se ofrece primero el que vence antes.
 - **Ingresos y egresos**: se cargan por remito (fecha, número de remito, datos del transporte: chofer, empresa de
@@ -30,6 +30,13 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
 - **Historial de movimientos** tipo debe y haber (ingresos y egresos en columnas separadas) con totales por tipo
   de envase, y filtros por empresa, tipo, fechas, remito, producto/lote y transporte (chofer o patente).
 - **Exportar a Excel** el stock y los movimientos (respeta los filtros), e imprimir.
+- **Pallets con etiqueta QR**: al cargar un ingreso se arman solos los pallets (completos y uno con lo que sobra)
+  y se imprimen sus etiquetas en hojas A4. Cada pallet sabe qué tiene (producto, lote, vencimiento y cantidad),
+  puede tener dos lotes, y se puede sacar una parte.
+- **Depósito y ubicaciones**: el mapa del galpón con sus calles y estibas numeradas, qué pallets hay en cada una
+  y cuáles faltan ubicar. Cada estiba tiene su etiqueta con QR.
+- **Terminal**: una pantalla para el lector de códigos o el celular, con tres tareas: consultar un pallet o una
+  estiba, ubicar pallets y despachar (arma el egreso con los pallets que suben al camión).
 
 ## Cómo instalarlo (Windows)
 
@@ -83,12 +90,57 @@ Además, cada vez que se abre el programa se guarda una copia del día en `datos
 
 A partir de ahí, cargar cada ingreso y egreso con su remito.
 
+## Pallets, etiquetas y ubicaciones
+
+### Etiquetar el stock que ya está en el depósito
+
+Lo que se cargó antes (por ejemplo, el conteo inicial desde Excel) no tiene pallets con etiqueta.
+En **Pallets → Armar pallets para el stock sin etiqueta** aparece cada lote con lo que falta etiquetar:
+se revisan las unidades por pallet, se aprieta **Armar** y se imprimen las etiquetas.
+Si un pallet tiene dos lotes, se arman por separado y después se juntan desde la ficha del pallet (**Juntar con otro pallet**).
+
+De ahí en adelante, cada ingreso nuevo arma sus pallets solo (casilla **Armar los pallets con su etiqueta QR**).
+
+### Imprimir etiquetas
+
+- Pallets: desde el remito (**Imprimir etiquetas de los pallets**), desde la ficha de un pallet, o marcando varios en **Pallets**.
+  Se eligen 4, 2 o 1 etiqueta por hoja A4.
+- Estibas: en **Depósito**, botón de imprimir de cada calle (2 o 4 por hoja).
+- En la ventana de impresión elegir papel **A4**, márgenes **"Ninguno"** y escala **100%** (sin "ajustar a la página").
+
+### Cargar las estibas del galpón
+
+En **Depósito → Agregar estibas** se elige galpón, calle y desde qué número hasta cuál (por ejemplo, calle 2, de la 1 a la 24).
+Cada estiba queda con un código como `G16-C2-E07` (galpón 16, calle 2, estiba 7). Si una estiba deja de existir,
+se desactiva desde su ficha (primero hay que mover sus pallets).
+
+### La terminal (lector de códigos o celular)
+
+1. Conectar el lector o el celular al WiFi del galpón.
+2. Abrir en su navegador la dirección que muestra la ventana negra, agregando `/terminal`.
+   Por ejemplo: `http://192.168.0.10:5000/terminal`. Conviene guardarla como acceso directo en la pantalla.
+3. El lector tiene que estar configurado como **teclado** (modo "keyboard wedge" o "emulación de teclado")
+   y mandar **Enter** después de cada código. Así funciona en la mayoría de los lectores tipo celular.
+
+Tareas:
+- **Consultar**: escanear un pallet (qué tiene y dónde está) o una estiba (qué pallets hay).
+- **Ubicar pallets**: escanear el pallet y después la estiba donde se deja. Para dejar varios en la misma estiba,
+  escanear primero la estiba y después los pallets, uno atrás del otro.
+- **Despachar**: escanear los pallets que suben al camión. Si de un pallet sale solo una parte, se cambia la cantidad.
+  Al final se escribe el número de remito y se confirma: queda cargado el egreso, igual que desde la oficina.
+
+El teclado de la pantalla queda escondido para que no tape; con el botón ⌨ se muestra para escribir un código a mano.
+
 ## Para quien programe
 
 - Python 3.10+, Flask, SQLite, openpyxl. Se sirve con waitress.
 - Las dependencias (puro Python) están copiadas en `vendor/` para que funcione sin internet;
   `iniciar.py` las agrega al `sys.path`. Para desarrollo se puede usar un venv con `requirements-dev.txt`.
-- Código en `stock/` (`rutas.py` las pantallas, `db.py` la base, `templates/` el HTML).
+- Código en `stock/`: `rutas.py` las pantallas de stock y remitos, `deposito.py` las de pallets, depósito y terminal,
+  `pallets.py` la lógica de pallets y ubicaciones, `qr.py` los QR (en SVG, con la librería `qrcode`), `db.py` la base
+  y sus migraciones, `templates/` el HTML.
+- Lo que tiene cada pallet sale de los movimientos de la tabla `pallet_movs` (nunca se pisa un saldo), así que
+  anular un egreso devuelve sola la mercadería a sus pallets.
 - Pruebas: `pip install -r requirements-dev.txt` y `pytest`.
 - Variables opcionales: `STOCK_DB` (ruta de la base), `STOCK_PUERTO` (por defecto 5000),
   `STOCK_SECRET_KEY`, `STOCK_DIAS_AVISO` (días para avisar vencimientos, por defecto 60), `STOCK_NO_ABRIR=1` (no abrir el navegador al arrancar).

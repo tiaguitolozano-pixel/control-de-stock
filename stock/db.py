@@ -111,6 +111,54 @@ MIGRACIONES = [
     ALTER TABLE movimientos ADD COLUMN patente_camion TEXT;
     ALTER TABLE movimientos ADD COLUMN patente_semi TEXT;
     """,
+    # 2: ubicaciones del depósito (galpón, calle, estiba) y pallets con etiqueta.
+    """
+    CREATE TABLE IF NOT EXISTS ubicaciones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        galpon TEXT NOT NULL,
+        calle INTEGER NOT NULL,
+        estiba INTEGER NOT NULL,
+        codigo TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        activa INTEGER NOT NULL DEFAULT 1,
+        UNIQUE (galpon, calle, estiba)
+    );
+    -- Cada pallet tiene un código propio (P000001) que va en su etiqueta con QR.
+    CREATE TABLE IF NOT EXISTS pallets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        codigo TEXT UNIQUE COLLATE NOCASE,
+        empresa_id INTEGER NOT NULL REFERENCES empresas(id),
+        ubicacion_id INTEGER REFERENCES ubicaciones(id),
+        movimiento_id INTEGER REFERENCES movimientos(id),
+        creado_en TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        observaciones TEXT
+    );
+    -- Lo que entra y sale de cada pallet. El contenido es la suma, sin contar los remitos anulados.
+    -- item_id es el renglón del remito; queda vacío al armar, juntar o desarmar pallets.
+    CREATE TABLE IF NOT EXISTS pallet_movs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pallet_id INTEGER NOT NULL REFERENCES pallets(id),
+        item_id INTEGER REFERENCES movimiento_items(id),
+        producto_id INTEGER NOT NULL REFERENCES productos(id),
+        lote_id INTEGER NOT NULL REFERENCES lotes(id),
+        cantidad REAL NOT NULL CHECK (cantidad <> 0),
+        motivo TEXT NOT NULL,
+        creado_en TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+    -- Historial de dónde estuvo cada pallet.
+    CREATE TABLE IF NOT EXISTS pallet_ubicaciones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pallet_id INTEGER NOT NULL REFERENCES pallets(id),
+        ubicacion_id INTEGER REFERENCES ubicaciones(id),
+        creado_en TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_pallets_empresa ON pallets(empresa_id);
+    CREATE INDEX IF NOT EXISTS idx_pallets_ubicacion ON pallets(ubicacion_id);
+    CREATE INDEX IF NOT EXISTS idx_pallets_movimiento ON pallets(movimiento_id);
+    CREATE INDEX IF NOT EXISTS idx_pallet_movs_pallet ON pallet_movs(pallet_id);
+    CREATE INDEX IF NOT EXISTS idx_pallet_movs_lote ON pallet_movs(lote_id);
+    CREATE INDEX IF NOT EXISTS idx_pallet_movs_item ON pallet_movs(item_id);
+    CREATE INDEX IF NOT EXISTS idx_pallet_ubic_pallet ON pallet_ubicaciones(pallet_id);
+    """,
 ]
 
 

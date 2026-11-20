@@ -24,7 +24,7 @@
 </div>
 <div class="tabla">
 <table>
-  <thead><tr><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Cantidad</th><th>Envase</th><th>En pallets</th></tr></thead>
+  <thead><tr><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Cantidad</th><th>Envase</th><th>Equivale a</th></tr></thead>
   <tbody>
   {% for i in items %}
     <tr><td><a href="{{ url_for('stock.producto_ficha', producto_id=i.producto_id) }}">{{ i.codigo }}</a></td>
@@ -35,7 +35,39 @@
   </tbody>
 </table>
 </div>
+{% if armados %}
+<h2>Pallets armados con este remito ({{ armados|length }})</h2>
+<div class="tabla">
+<table>
+  <thead><tr><th>Pallet</th><th>Contenido hoy</th><th>Ubicación</th></tr></thead>
+  <tbody>
+  {% for p in armados %}
+    <tr><td class="nowrap"><a href="{{ url_for('deposito.pallet_ficha', pallet_id=p.id) }}"><strong>{{ p.codigo }}</strong></a></td>
+        <td>{% for l in p.lineas %}<div>{{ l.codigo }} · {{ l.lote or '(sin lote)' }} · <strong>{{ l.cantidad|num }}</strong> {{ l.unidad|lower }}</div>{% else %}<span class="ayuda">Vacío (ya salió)</span>{% endfor %}</td>
+        <td>{{ p.ubicacion or '—' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% elif usados %}
+<h2>Pallets de los que salió la mercadería</h2>
+<div class="tabla">
+<table>
+  <thead><tr><th>Pallet</th><th>Código</th><th>Lote</th><th class="num">Cantidad</th><th>Envase</th><th>Ubicación</th></tr></thead>
+  <tbody>
+  {% for u in usados %}
+    <tr><td class="nowrap"><a href="{{ url_for('deposito.pallet_ficha', pallet_id=u.pallet_id) }}"><strong>{{ u.pallet }}</strong></a></td>
+        <td>{{ u.codigo }}</td><td>{{ u.lote or '(sin lote)' }}</td>
+        <td class="num">{{ (-u.cantidad)|num }}</td><td>{{ u.unidad }}</td>
+        <td>{{ corto_ubicacion(u) or '—' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
 <div class="acciones" style="margin-top:16px">
+  {% if armados %}<a class="boton verde" href="{{ url_for('deposito.etiquetas_pallets', movimiento_id=m.id) }}" target="_blank">🖨 Imprimir etiquetas de los pallets</a>{% endif %}
+  {% if m.tipo == 'INGRESO' and not armados and not m.anulado %}<a class="boton secundario" href="{{ url_for('deposito.pallets_armar', empresa_id=m.empresa_id) }}">Armar pallets con etiqueta</a>{% endif %}
   <button class="boton secundario" onclick="window.print()">🖨 Imprimir</button>
   <a class="boton secundario" href="{{ url_for('stock.movimiento_nuevo', tipo=m.tipo|lower, empresa_id=m.empresa_id) }}">Cargar otro {{ tipos[m.tipo]|lower }}</a>
   <a class="boton secundario" href="{{ url_for('stock.movimientos') }}">Volver al historial</a>

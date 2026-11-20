@@ -1,0 +1,52 @@
+:root { --azul: #1f4e79; --verde: #1e7b45; --rojo: #b3261e; --gris: #5f6b76; --borde: #d6dde4; --fondo: #f4f6f8; }
+* { box-sizing: border-box; }
+body.terminal { margin: 0; font-family: "Segoe UI", Roboto, Arial, sans-serif; font-size: 18px; background: var(--fondo); color: #1d2329; }
+header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--azul); color: #fff; }
+header .menu-volver { color: #fff; text-decoration: none; font-weight: 600; padding: 6px 12px; border: 1px solid rgba(255,255,255,.6); border-radius: 8px; white-space: nowrap; }
+header .titulo { font-weight: 700; font-size: 19px; }
+main { max-width: 640px; margin: 0 auto; padding: 14px; }
+a { color: var(--azul); }
+.menu a { display: block; margin-bottom: 14px; padding: 22px 18px; border: 2px solid var(--azul); border-radius: 14px; background: #fff;
+          color: var(--azul); font-size: 23px; font-weight: 700; text-decoration: none; }
+.menu a small { display: block; margin-top: 4px; color: var(--gris); font-size: 15px; font-weight: 400; }
+.escaner { display: flex; gap: 8px; margin-bottom: 12px; }
+.escaner input { flex: 1; min-width: 0; padding: 14px; border: 2px solid var(--azul); border-radius: 10px; font-size: 22px; text-transform: uppercase; }
+.escaner input:focus { outline: 3px solid #9cc1e4; }
+.escaner input::placeholder { text-transform: none; font-size: 17px; }
+.escaner button { padding: 0 16px; border: 2px solid var(--azul); border-radius: 10px; background: var(--azul); color: #fff; font-size: 20px; font-weight: 700; }
+.escaner .teclado { background: #fff; color: var(--azul); }
+.paso { margin: 4px 0 12px; font-size: 19px; font-weight: 600; }
+.paso strong { white-space: nowrap; }
+.mensajes { list-style: none; margin: 0 0 12px; padding: 0; }
+.mensajes li { margin-bottom: 8px; padding: 12px 14px; border-radius: 10px; font-weight: 600; }
+.mensajes .ok { background: #e3f4ea; color: var(--verde); font-size: 20px; }
+.mensajes .error { background: #fbe9e7; color: var(--rojo); }
+.mensajes .aviso { background: #fff6d6; color: #6b4e00; }
+.tarjeta { margin-bottom: 12px; padding: 14px; border: 1px solid var(--borde); border-radius: 12px; background: #fff; }
+.fila-titulo { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.codigo { font-size: 26px; font-weight: 800; letter-spacing: .5px; }
+.ubic { padding: 4px 10px; border-radius: 8px; background: #e8f0f8; color: var(--azul); font-weight: 700; white-space: nowrap; }
+.empresa { margin: 4px 0 6px; color: var(--gris); font-weight: 600; }
+.linea { padding: 8px 0; border-top: 1px solid var(--borde); }
+.cant { font-size: 21px; font-weight: 700; }
+.ayuda { color: var(--gris); font-size: 15px; font-weight: 400; }
+.centro { text-align: center; }
+.error { color: var(--rojo); font-weight: 600; }
+label { display: block; margin: 10px 0 4px; color: var(--gris); font-size: 15px; }
+input, select, textarea { width: 100%; padding: 11px; border: 1px solid #b9c3cd; border-radius: 8px; background: #fff; font: inherit; font-size: 18px; }
+input.cantidad { font-size: 22px; font-weight: 700; }
+input.patente { text-transform: uppercase; }
+details { margin-top: 10px; }
+summary { padding: 8px 0; color: var(--azul); font-weight: 600; cursor: pointer; }
+.boton { display: block; width: 100%; margin-top: 10px; padding: 15px; border: 2px solid var(--azul); border-radius: 10px; background: var(--azul);
+         color: #fff; font: inherit; font-size: 20px; font-weight: 700; text-align: center; text-decoration: none; cursor: pointer; }
+.boton.secundario { background: #fff; color: var(--azul); }
+.boton.rojo { border-color: var(--rojo); background: var(--rojo); }
+.quitar { padding: 8px 12px; border: 1px solid var(--rojo); border-radius: 8px; background: #fff; color: var(--rojo); font: inherit; font-size: 16px; }
+.fija { border: 2px solid #c99a00; background: #fff6d6; }
+.resumen-despacho { font-size: 19px; }
+.ultimos { margin: 0; padding-left: 20px; }
+.ultimos li { margin-bottom: 6px; }
+.listo { text-align: center; font-size: 21px; line-height: 1.5; }
+.listo .tilde { font-size: 48px; }
+h3 { margin: 18px 0 8px; font-size: 17px; color: var(--gris); }

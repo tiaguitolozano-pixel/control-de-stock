@@ -1,0 +1,22 @@
+{% extends "terminal_base.html" %}
+{% from "_terminal_macros.html" import escaner %}
+{% block encabezado %}Consultar{% endblock %}
+{% block contenido %}
+<form method="get">{{ escaner('Pallet o estiba') }}</form>
+{% if error %}<ul class="mensajes"><li class="error">{{ error }}</li></ul>{% endif %}
+{% if tipo == 'pallet' and r %}
+  {% with p=r %}{% include "_terminal_pallet.html" %}{% endwith %}
+  {% if r.lineas %}
+  <a class="boton" href="{{ url_for('deposito.terminal_ubicar', pallet=r.id) }}">📍 Ubicar este pallet</a>
+  <a class="boton secundario" href="{{ url_for('deposito.terminal_despachar', pallet=r.id) }}">🚚 Despachar este pallet</a>
+  {% endif %}
+{% elif tipo == 'ubicacion' and r %}
+  <div class="tarjeta">
+    <div class="fila-titulo"><span class="codigo">{{ corto_ubicacion(r.u) }}</span><span class="ubic">{{ r.pallets|length }} pallet{{ 's' if r.pallets|length != 1 }}</span></div>
+    <div class="ayuda">{{ nombre_ubicacion(r.u) }}</div>
+  </div>
+  {% for p in r.pallets %}{% include "_terminal_pallet.html" %}{% else %}<p class="ayuda">No hay pallets en esta estiba.</p>{% endfor %}
+{% elif not error %}
+  <p class="paso">Escaneá la etiqueta de un pallet para ver qué tiene y dónde está, o la de una estiba para ver qué pallets hay.</p>
+{% endif %}
+{% endblock %}

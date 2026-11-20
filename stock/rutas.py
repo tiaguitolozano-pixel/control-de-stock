@@ -25,6 +25,7 @@ from .db import (
     stock_de_productos,
     stock_por_lote_id,
 )
+from . import pallets as pl
 from .excel import armar_excel
 from .formato import cantidad_pallets
 from .servicios import (
@@ -162,7 +163,7 @@ def stock_excel():
         return _excel(
             "stock_por_lote",
             "Stock por lote",
-            ["Empresa", "Código", "Descripción", "Lote", "Vencimiento", "Stock", "Envase", "Pallets"],
+            ["Empresa", "Código", "Descripción", "Lote", "Vencimiento", "Stock", "Envase", "Equivale a (pallets)"],
             [
                 (l["empresa"], l["codigo"], l["descripcion"], l["lote"] or "(sin lote)", l["vencimiento"] or "",
                  l["stock"], l["unidad"], cantidad_pallets(l["stock"], l["unidades_por_pallet"]))
@@ -173,7 +174,7 @@ def stock_excel():
     return _excel(
         "stock",
         "Stock",
-        ["Empresa", "Código", "Descripción", "Stock", "Envase", "Pallets", "Unidades por pallet",
+        ["Empresa", "Código", "Descripción", "Stock", "Envase", "Equivale a (pallets)", "Unidades por pallet",
          "Stock mínimo", "Próximo vencimiento", "Último movimiento"],
         [
             (r["empresa"], r["codigo"], r["descripcion"], r["stock"], r["unidad"],
@@ -208,20 +209,25 @@ def _lotes_filtrados(f):
 @bp.route("/lotes")
 def lotes():
     f = _filtros_lotes()
-    return render_template("lotes.html", filas=_lotes_filtrados(f), filtros=f, empresas=_empresas())
+    filas = _lotes_filtrados(f)
+    return render_template("lotes.html", filas=filas, filtros=f, empresas=_empresas(),
+                           donde=pl.resumen_por_lote([r["id"] for r in filas]) if filas else {})
 
 
 @bp.route("/lotes/excel")
 def lotes_excel():
     filas = _lotes_filtrados(_filtros_lotes())
+    donde = pl.resumen_por_lote([r["id"] for r in filas]) if filas else {}
     return _excel(
         "stock_por_lote",
         "Stock por lote",
-        ["Empresa", "Código", "Descripción", "Lote", "Vencimiento", "Stock", "Envase", "Pallets"],
+        ["Empresa", "Código", "Descripción", "Lote", "Vencimiento", "Stock", "Envase", "Equivale a (pallets)", "Ubicaciones",
+         "Sin etiqueta"],
         [
             (r["empresa"], r["codigo"], r["descripcion"], r["lote"] or "(sin lote)",
              r["vencimiento"] or "", r["stock"], r["unidad"],
-             cantidad_pallets(r["stock"], r["unidades_por_pallet"]))
+             cantidad_pallets(r["stock"], r["unidades_por_pallet"]),
+             ", ".join(donde[r["id"]]["ubicaciones"]), donde[r["id"]]["sin_etiqueta"])
             for r in filas
         ],
     )
@@ -564,7 +570,7 @@ def movimientos_excel():
     f = _filtros_movs()
     filas = _renglones_movimientos(f, limite=None)
     encabezados = ["Fecha", "Remito", "Empresa", "Código", "Descripción", "Lote", "Vencimiento", "Envase",
-                   "Ingreso (debe)", "Egreso (haber)", "Pallets", "Chofer", "Empresa de transporte",
+                   "Ingreso (debe)", "Egreso (haber)", "Equivale a (pallets)", "Chofer", "Empresa de transporte",
                    "Patente camión", "Patente semi", "Observaciones", "Anulado"]
     col_ingreso = encabezados.index("Ingreso (debe)")
     pie = []
@@ -635,7 +641,8 @@ def movimiento_nuevo(tipo):
     if request.method == "GET":
         return _form_movimiento(
             tipo,
-            {"empresa_id": _int_o_none(request.args.get("empresa_id")), "fecha": date.today().isoformat()},
+            {"empresa_id": _int_o_none(request.args.get("empresa_id")), "fecha": date.today().isoformat(),
+             "crear_pallets": "1"},
             [],
         )
 
@@ -741,9 +748,10 @@ def movimiento_nuevo(tipo):
         for e in dict.fromkeys(errores):  # sin repetidos
             flash(e, "error")
         form = {"empresa_id": empresa_id, "fecha": fecha, "remito": remito, "observaciones": observaciones,
-                **transporte}
+                "crear_pallets": request.form.get("crear_pallets", ""), **transporte}
         return _form_movimiento(tipo, form, renglones, mostrar_repetido)
 
+    plan_pallets = {}
     if tipo == "INGRESO":
         lineas = []
         for (pid, clave_lote), cant in items.items():
@@ -751,9 +759,22 @@ def movimiento_nuevo(tipo):
             lineas.append((pid, obtener_o_crear_lote(pid, lote, vto), cant))
     else:
         lineas = [(pid, lid, cant) for (pid, lid), cant in items.items()]
+        # Sin pallets escaneados: el programa decide de qué pallets sale (ver pallets.planear_salida).
+        for pid, lid, cant in lineas:
+            plan_pallets[(pid, lid)] = pl.planear_salida(lid, cant, productos[pid]["unidades_por_pallet"])
     mid = registrar_movimiento(tipo, empresa_id, fecha, remito, observaciones, lineas, transporte)
+    avisos, creados = [], []
+    if tipo == "INGRESO" and request.form.get("crear_pallets") == "1":
+        creados, avisos = pl.crear_pallets_de_ingreso(mid)
+    elif plan_pallets:
+        pl.registrar_salida_de_pallets(mid, plan_pallets)
     db.commit()
-    flash(f"{TIPOS[tipo]} guardado (remito {remito}).", "ok")
+    mensaje = f"{TIPOS[tipo]} guardado (remito {remito})."
+    if creados:
+        mensaje += f" Se armaron {len(creados)} pallets: imprimí sus etiquetas con el botón de abajo."
+    flash(mensaje, "ok")
+    for aviso in avisos:
+        flash(aviso, "aviso")
     return redirect(url_for("stock.movimiento_detalle", movimiento_id=mid))
 
 
@@ -779,7 +800,13 @@ def movimiento_detalle(movimiento_id):
            WHERE i.movimiento_id = ? ORDER BY i.id""",
         (movimiento_id,),
     ).fetchall()
-    return render_template("movimiento_detalle.html", m=m, items=items, tipos=TIPOS)
+    usados = pl.pallets_de_movimiento(movimiento_id)
+    armados = []
+    if m["tipo"] == "INGRESO":
+        armados = pl.pallets(ids=[r[0] for r in get_db().execute(
+            "SELECT id FROM pallets WHERE movimiento_id = ?", (movimiento_id,))], con_contenido=False)
+    return render_template("movimiento_detalle.html", m=m, items=items, tipos=TIPOS, usados=usados,
+                           armados=sorted(armados, key=lambda p: p["id"]))
 
 
 @bp.route("/movimientos/<int:movimiento_id>/anular", methods=["POST"])
@@ -817,6 +844,11 @@ def movimiento_anular(movimiento_id):
                 "error",
             )
             return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))
+        problemas = pl.problemas_al_anular(movimiento_id)
+        if problemas:
+            flash("No se puede anular: " + "; ".join(problemas)
+                  + ". Primero anulá esos egresos o desarmá esos pallets.", "error")
+            return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))
     db.execute(
         "UPDATE movimientos SET anulado = 1, motivo_anulacion = ? WHERE id = ?", (motivo, movimiento_id)
     )
@@ -832,10 +864,10 @@ def movimiento_anular(movimiento_id):
 def importar():
     if request.method == "GET":
         return render_template("importar.html", form={"fecha": date.today().isoformat(),
-                                                      "remito": "STOCK INICIAL"})
+                                                      "remito": "STOCK INICIAL", "crear_pallets": "1"})
     fecha = _texto("fecha")
     remito = _texto("remito") or "STOCK INICIAL"
-    form = {"fecha": fecha, "remito": remito}
+    form = {"fecha": fecha, "remito": remito, "crear_pallets": request.form.get("crear_pallets", "")}
     archivo = request.files.get("archivo")
     errores = []
     if not _fecha_valida(fecha):
@@ -849,6 +881,13 @@ def importar():
         resumen, errores = importar_conteo(filas, fecha, remito)
     if errores:
         return render_template("importar.html", form=form, errores=errores)
+    if form["crear_pallets"] == "1":
+        resumen["pallets"], resumen["avisos"] = [], []
+        for mid in resumen["movimientos"]:
+            creados, avisos = pl.crear_pallets_de_ingreso(mid)
+            resumen["pallets"] += creados
+            resumen["avisos"] += avisos
+        get_db().commit()
     return render_template("importar.html", form=form, resumen=resumen)
 
 

@@ -16,10 +16,13 @@
         <a href="{{ url_for('stock.movimiento_nuevo', tipo='ingreso') }}" class="{{ 'activo' if request.view_args and request.view_args.get('tipo','').upper() == 'INGRESO' }}">+ Ingreso</a>
         <a href="{{ url_for('stock.movimiento_nuevo', tipo='egreso') }}" class="{{ 'activo' if request.view_args and request.view_args.get('tipo','').upper() == 'EGRESO' }}">− Egreso</a>
         <a href="{{ url_for('stock.lotes') }}" class="{{ 'activo' if seccion == 'stock.lotes' }}">Lotes y vencimientos</a>
+        <a href="{{ url_for('deposito.pallets_lista') }}" class="{{ 'activo' if seccion.startswith('deposito.pallet') }}">Pallets</a>
+        <a href="{{ url_for('deposito.deposito') }}" class="{{ 'activo' if seccion in ('deposito.deposito', 'deposito.ubicacion') }}">Depósito</a>
         <a href="{{ url_for('stock.movimientos') }}" class="{{ 'activo' if seccion in ('stock.movimientos', 'stock.movimiento_detalle') }}">Movimientos</a>
         <a href="{{ url_for('stock.productos') }}" class="{{ 'activo' if seccion.startswith('stock.producto') }}">Productos</a>
         <a href="{{ url_for('stock.empresas') }}" class="{{ 'activo' if seccion.startswith('stock.empresa') }}">Empresas</a>
         <a href="{{ url_for('stock.importar') }}" class="{{ 'activo' if seccion.startswith('stock.importar') }}">Importar Excel</a>
+        <a href="{{ url_for('deposito.terminal') }}">📱 Terminal</a>
       </nav>
     </div>
   </header>

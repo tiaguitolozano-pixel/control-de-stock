@@ -1,22 +1,11 @@
 from datetime import datetime
 from io import BytesIO
 
-import pytest
 from openpyxl import Workbook, load_workbook
 
 from stock import create_app, formato_numero
 from stock.db import envases, get_db, stock_de_lotes, stock_por_id, stock_por_lote_id
 from stock.formato import texto_pallets
-
-
-@pytest.fixture
-def app(tmp_path):
-    return create_app({"TESTING": True, "DATABASE": str(tmp_path / "test.db")})
-
-
-@pytest.fixture
-def client(app):
-    return app.test_client()
 
 
 def crear_empresa(client, nombre="Acme SA"):
@@ -363,7 +352,7 @@ def test_stock_muestra_pallets(client):
     assert "2 pallets + 20 bolsas" in texto
     ws = load_workbook(BytesIO(client.get("/stock/excel").data)).active
     encabezados = [c.value for c in ws[1]]
-    assert ws.cell(2, encabezados.index("Pallets") + 1).value == 2.5
+    assert ws.cell(2, encabezados.index("Equivale a (pallets)") + 1).value == 2.5
 
 
 def test_transporte_se_guarda_y_autocompleta(app, client):

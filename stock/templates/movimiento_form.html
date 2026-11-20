@@ -67,6 +67,20 @@
     <p class="ayuda" id="aviso-empresa">Elegí la empresa para ver sus productos.</p>
   </div>
 
+  {% if tipo == 'INGRESO' %}
+  <div class="tarjeta">
+    <label class="check"><input type="checkbox" name="crear_pallets" value="1" {{ 'checked' if form.crear_pallets == '1' }}>
+      Armar los pallets con su etiqueta QR</label>
+    <p class="ayuda" style="margin:6px 0 0">Para cada producto con unidades por pallet se arman los pallets completos y uno más con lo que sobra
+      (por ejemplo, 100 bolsas con 40 por pallet = 3 pallets: 40, 40 y 20). Después de guardar, imprimí las etiquetas y pegalas.
+      Si un pallet llegó con dos lotes, se juntan desde la ficha del pallet.</p>
+  </div>
+  {% else %}
+  <p class="ayuda">Los pallets: si el egreso se carga acá, el programa descuenta primero la mercadería sin etiqueta, después pallets completos,
+    y lo que sobra de un pallet empezado. Para que salgan exactamente los pallets que se cargan en el camión, usá
+    <a href="{{ url_for('deposito.terminal_despachar') }}">Despachar con la terminal</a>.</p>
+  {% endif %}
+
   <button class="boton {{ 'verde' if tipo == 'INGRESO' else 'rojo' }}">Guardar {{ tipos[tipo]|lower }}</button>
   <a class="boton secundario" href="{{ url_for('stock.inicio') }}">Cancelar</a>
 </form>

@@ -38,7 +38,7 @@
 {% set detallar = filtros.ver_lotes or filtros.lote %}
 <div class="tabla">
 <table>
-  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th class="num">Stock</th><th>Envase</th><th>En pallets</th><th class="num">Mínimo</th><th>Próx. vencimiento</th><th>Último mov.</th></tr></thead>
+  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th class="num">Stock</th><th>Envase</th><th>Equivale a</th><th class="num">Mínimo</th><th>Próx. vencimiento</th><th>Último mov.</th></tr></thead>
   <tbody>
   {% for r in filas %}
     <tr class="{{ 'bajo' if r.stock_minimo > 0 and r.stock < r.stock_minimo }} {{ 'con-lotes' if detallar }}">
@@ -79,5 +79,5 @@
 </table>
 </div>
 <p class="ayuda">Las filas en amarillo están por debajo del stock mínimo configurado en el producto.
-  "En pallets" aparece en los productos que tienen cargadas las unidades por pallet.</p>
+  "Equivale a" dice cuántos pallets completos son, en los productos que tienen cargadas las unidades por pallet.</p>
 {% endblock %}

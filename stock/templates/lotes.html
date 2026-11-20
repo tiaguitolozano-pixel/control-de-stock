@@ -28,7 +28,7 @@
 </div>
 <div class="tabla">
 <table>
-  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Stock</th><th>Envase</th><th>En pallets</th></tr></thead>
+  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Stock</th><th>Envase</th><th>Equivale a</th><th>Dónde está</th></tr></thead>
   <tbody>
   {% for r in filas %}
     {% set v = r.vencimiento %}
@@ -41,9 +41,15 @@
       <td class="num"><strong>{{ r.stock|num }}</strong></td>
       <td>{{ r.unidad }}</td>
       <td class="pallets">{{ r.stock|pallets(r.unidades_por_pallet, r.unidad) }}</td>
+      {% set d = donde.get(r.id) %}
+      <td class="chico">
+        {% if d and d.ubicaciones %}<a href="{{ url_for('deposito.pallets_lista', buscar=r.lote or r.codigo, empresa_id=r.empresa_id) }}">{{ d.ubicaciones|join(', ') }}</a>{% endif %}
+        {% if d and d.sin_ubicar %}<div>{{ d.sin_ubicar }} pallet{{ 's' if d.sin_ubicar != 1 }} sin ubicar</div>{% endif %}
+        {% if d and d.sin_etiqueta > 0.000001 %}<div>Sin etiqueta: {{ d.sin_etiqueta|num }}</div>{% endif %}
+      </td>
     </tr>
   {% else %}
-    <tr><td colspan="8" class="vacio">No hay lotes con stock para estos filtros.</td></tr>
+    <tr><td colspan="9" class="vacio">No hay lotes con stock para estos filtros.</td></tr>
   {% endfor %}
   </tbody>
 </table>

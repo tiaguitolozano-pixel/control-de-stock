@@ -6,6 +6,7 @@ from flask import Flask
 
 from . import db
 from .formato import formato_fecha, formato_numero, texto_pallets
+from .qr import qr_svg
 
 __all__ = ["create_app", "formato_fecha", "formato_numero"]
 
@@ -26,11 +27,14 @@ def create_app(config=None):
     app.jinja_env.filters["fecha"] = formato_fecha
     app.jinja_env.filters["pallets"] = texto_pallets
     app.jinja_env.globals["hoy"] = lambda: date.today().isoformat()
+    app.jinja_env.globals["qr_svg"] = qr_svg
 
     with app.app_context():
         db.init_db()
 
+    from .deposito import bp as bp_deposito
     from .rutas import bp
 
     app.register_blueprint(bp)
+    app.register_blueprint(bp_deposito)
     return app

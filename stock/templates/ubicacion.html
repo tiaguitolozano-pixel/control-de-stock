@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block titulo %}Estiba {{ corto_ubicacion(u) }}{% endblock %}
+{% block contenido %}
+<h1>{{ nombre_ubicacion(u) }} {% if not u.activa %}<span class="etq inactivo">desactivada</span>{% endif %}</h1>
+<div class="acciones">
+  <a class="boton secundario" href="{{ url_for('deposito.deposito', galpon=u.galpon) }}">← Volver al galpón</a>
+  <a class="boton secundario" target="_blank" href="{{ url_for('deposito.etiquetas_ubicaciones', ids=u.id) }}">🖨 Imprimir su etiqueta</a>
+</div>
+<div class="tarjeta ficha-qr">
+  <div class="qr-chico">{{ qr_svg(u.codigo) }}</div>
+  <div><div class="codigo-grande">{{ corto_ubicacion(u) }}</div><div class="ayuda">Código de la etiqueta: {{ u.codigo }}</div></div>
+</div>
+<h2>Pallets en esta estiba ({{ pallets|length }})</h2>
+{% include "_tabla_pallets.html" %}
+{% if u.activa and pallets %}
+<p class="ayuda no-imprimir" style="margin-top:16px">Para desactivar esta estiba primero mové sus pallets a otra.</p>
+{% else %}
+<form method="post" action="{{ url_for('deposito.ubicacion_activar', ubicacion_id=u.id) }}" class="no-imprimir" style="margin-top:16px">
+  <button class="boton secundario chico">{{ 'Desactivar esta estiba (ya no existe)' if u.activa else 'Volver a activar esta estiba' }}</button>
+</form>
+{% endif %}
+{% endblock %}

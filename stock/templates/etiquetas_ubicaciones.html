@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Etiquetas de estibas</title>
+  {% include "_etiquetas_estilo.html" %}
+  <style>
+    .etiqueta { padding: 8mm; align-items: center; justify-content: center; text-align: center; }
+    .galpon { font-weight: 700; text-transform: uppercase; }
+    .calle, .estiba { font-weight: 700; }
+    .numero { font-weight: 900; line-height: .95; white-space: nowrap; }
+    .cod { color: #333; }
+    .n2 .etiqueta { flex-direction: row; gap: 10mm; text-align: left; }
+    .n2 .qr svg { width: 100mm; height: 100mm; }
+    .n2 .galpon { font-size: 18pt; } .n2 .calle { font-size: 34pt; margin-top: 3mm; }
+    .n2 .estiba { font-size: 30pt; margin-top: 2mm; } .n2 .numero { font-size: 130pt; }
+    .n2 .numero.largo { font-size: 90pt; } .n2 .cod { font-size: 12pt; margin-top: 3mm; }
+    .n4 .qr svg { width: 60mm; height: 60mm; }
+    .n4 .galpon { font-size: 12pt; } .n4 .calle { font-size: 22pt; margin-top: 2mm; }
+    .n4 .estiba { font-size: 18pt; margin-top: 1mm; } .n4 .numero { font-size: 72pt; }
+    .n4 .numero.largo { font-size: 54pt; } .n4 .cod { font-size: 9pt; margin-top: 1mm; }
+  </style>
+</head>
+<body>
+  <div class="barra">
+    <strong>{{ total }} etiqueta{{ 's' if total != 1 }}</strong>
+    <button onclick="window.print()">🖨 Imprimir</button>
+    <span>Por hoja A4:
+      {% for n in (2, 4) %}<a class="{{ 'activo' if n == por_hoja }}" href="{{ url_for('deposito.etiquetas_ubicaciones', por_hoja=n, **parametros) }}">{{ n }}</a>{% endfor %}</span>
+    <span class="nota">En la ventana de impresión elegí papel A4, márgenes "Ninguno" y escala 100%.</span>
+  </div>
+  {% for hoja in hojas %}
+  <div class="hoja n{{ por_hoja }}">
+    {% for u in hoja %}
+    <div class="etiqueta">
+      <div class="qr">{{ qr_svg(u.codigo) }}</div>
+      <div>
+        <div class="galpon">Galpón {{ u.galpon }}</div>
+        <div class="calle">Calle {{ u.calle }}</div>
+        <div class="estiba">Estiba</div>
+        <div class="numero{{ ' largo' if u.estiba >= 100 }}">{{ u.estiba }}</div>
+        <div class="cod">{{ u.codigo }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="vacio">No hay estibas para imprimir. Crealas en Depósito.</div>
+  {% endfor %}
+</body>
+</html>

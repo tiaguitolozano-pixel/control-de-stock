@@ -1,0 +1,21 @@
+<div class="tabla">
+<table>
+  <thead><tr>
+    {% if seleccionable %}<th><input type="checkbox" title="Marcar todos" onclick="document.querySelectorAll('.sel-pallet').forEach(c => c.checked = this.checked)"></th>{% endif %}
+    <th>Pallet</th><th>Empresa</th><th>Contenido</th><th>Ubicación</th><th>Armado</th></tr></thead>
+  <tbody>
+  {% for p in pallets %}
+    <tr>
+      {% if seleccionable %}<td><input type="checkbox" class="sel-pallet" name="ids" value="{{ p.id }}"></td>{% endif %}
+      <td class="nowrap"><a href="{{ url_for('deposito.pallet_ficha', pallet_id=p.id) }}"><strong>{{ p.codigo }}</strong></a></td>
+      <td>{{ p.empresa }}</td>
+      <td>{% for l in p.lineas %}<div>{{ l.codigo }} · {{ l.descripcion }} · Lote {{ l.lote or '(sin lote)' }}{% if l.vencimiento %} · Vto {{ l.vencimiento|fecha }}{% endif %} · <strong>{{ l.cantidad|num }}</strong> {{ l.unidad|lower }}</div>{% else %}<span class="ayuda">Vacío (ya salió)</span>{% endfor %}</td>
+      <td class="nowrap">{% if p.ubicacion %}<a href="{{ url_for('deposito.ubicacion', ubicacion_id=p.ubicacion_id) }}">{{ p.ubicacion }}</a>{% else %}<span class="etq anulado">sin ubicar</span>{% endif %}</td>
+      <td class="chico nowrap">{{ p.creado_en|fecha }}{% if p.remito %}<br>Remito {{ p.remito }}{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="{{ 6 if seleccionable else 5 }}" class="vacio">No hay pallets.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
