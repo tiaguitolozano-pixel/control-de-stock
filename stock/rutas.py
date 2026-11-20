@@ -771,7 +771,8 @@ def movimiento_nuevo(tipo):
     db.commit()
     mensaje = f"{TIPOS[tipo]} guardado (remito {remito})."
     if creados:
-        mensaje += f" Se armaron {len(creados)} pallets: imprimí sus etiquetas con el botón de abajo."
+        mensaje += (" Se armó 1 pallet" if len(creados) == 1 else f" Se armaron {len(creados)} pallets") \
+            + ": imprimí sus etiquetas con el botón de abajo."
     flash(mensaje, "ok")
     for aviso in avisos:
         flash(aviso, "aviso")

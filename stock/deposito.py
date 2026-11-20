@@ -259,7 +259,8 @@ def pallets_armar():
                 flash(e, "error")
             return redirect(url_for("deposito.pallets_armar", empresa_id=request.form.get("empresa_id") or None))
         db.commit()
-        flash(f"Se armaron {len(creados)} pallets.", "ok")
+        n = len(creados)
+        flash("Se armó 1 pallet." if n == 1 else f"Se armaron {n} pallets.", "ok")
         return redirect(url_for("deposito.pallets_armar", empresa_id=request.form.get("empresa_id") or None,
                                 nuevos=",".join(map(str, creados))))
     empresa_id = _int(request.args.get("empresa_id"))
