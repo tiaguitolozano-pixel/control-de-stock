@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block titulo %}Pallets{% endblock %}
+{% block contenido %}
+<h1>Pallets con etiqueta</h1>
+<div class="acciones">
+  <a class="boton" href="{{ url_for('deposito.pallets_armar', empresa_id=filtros.empresa_id) }}">Armar pallets para el stock sin etiqueta</a>
+  <a class="boton secundario" href="{{ url_for('deposito.pallets_excel', **request.args) }}">⬇ Exportar a Excel</a>
+  <a class="boton secundario" href="{{ url_for('deposito.deposito') }}">Ver el depósito</a>
+</div>
+<div class="tarjeta">
+  <form class="filtros" method="get">
+    <div class="campo"><label>Empresa</label>
+      <select name="empresa_id" onchange="this.form.submit()">
+        <option value="">Todas</option>
+        {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == filtros.empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="campo"><label>Buscar</label><input name="buscar" value="{{ filtros.buscar }}" placeholder="Pallet, código, descripción o lote"></div>
+    <label class="check"><input type="checkbox" name="sin_ubicar" value="1" {{ 'checked' if filtros.sin_ubicar }} onchange="this.form.submit()"> Solo los sin ubicar</label>
+    <label class="check"><input type="checkbox" name="ver_vacios" value="1" {{ 'checked' if filtros.ver_vacios }} onchange="this.form.submit()"> Ver también los vacíos (ya salieron)</label>
+    <button class="boton">Filtrar</button>
+    <a href="{{ url_for('deposito.pallets_lista') }}">Limpiar</a>
+  </form>
+</div>
+<form method="get" action="{{ url_for('deposito.etiquetas_pallets') }}" target="_blank">
+  <div class="acciones">
+    <button class="boton secundario">🖨 Imprimir etiquetas de los marcados</button>
+    <span class="ayuda">{{ pallets|length }} pallet{{ 's' if pallets|length != 1 }}</span>
+  </div>
+  {% with seleccionable=true %}{% include "_tabla_pallets.html" %}{% endwith %}
+</form>
+{% endblock %}

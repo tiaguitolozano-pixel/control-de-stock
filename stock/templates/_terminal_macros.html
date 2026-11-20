@@ -1,0 +1,8 @@
+{% macro escaner(texto) %}
+<div class="escaner">
+  <input id="codigo" name="codigo" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false"
+         inputmode="none" enterkeyhint="go" placeholder="{{ texto }}" aria-label="{{ texto }}">
+  <button type="button" class="teclado" onclick="teclado()" title="Mostrar u ocultar el teclado para escribir a mano">⌨</button>
+  <button class="ok" name="accion" value="escanear">OK</button>
+</div>
+{% endmacro %}

@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block titulo %}Nuevo {{ tipos[tipo]|lower }}{% endblock %}
+{% block contenido %}
+<h1>{% if tipo == 'INGRESO' %}Cargar ingreso de mercadería{% else %}Cargar egreso de mercadería{% endif %}</h1>
+{% if not empresas %}
+  <div class="tarjeta">Primero tenés que <a href="{{ url_for('stock.empresa_form') }}">cargar una empresa</a>.</div>
+{% else %}
+<form method="post" id="form-mov">
+  <div class="tarjeta">
+    <div class="grilla2">
+      <div class="campo"><label>Empresa *</label>
+        <select name="empresa_id" id="empresa" required>
+          <option value="">Elegí…</option>
+          {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == form.empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="campo"><label>Fecha *</label><input type="date" name="fecha" value="{{ form.fecha or hoy() }}" required></div>
+      <div class="campo"><label>N° de remito *</label><input name="remito" value="{{ form.remito or '' }}" required></div>
+    </div>
+    {% if mostrar_repetido %}
+      <label class="check"><input type="checkbox" name="confirmar_repetido" value="1"> Cargar igual (el remito repetido es correcto)</label>
+    {% endif %}
+
+    <h3 class="subtitulo">Transporte</h3>
+    <div class="grilla2">
+      <div class="campo"><label>Chofer (nombre y apellido)</label>
+        <input name="chofer" id="chofer" value="{{ form.chofer or '' }}" list="dl-choferes" autocomplete="off"></div>
+      <div class="campo"><label>Empresa de transporte</label>
+        <input name="transporte" id="transporte" value="{{ form.transporte or '' }}" list="dl-transportes" autocomplete="off"></div>
+      <div class="campo"><label>Patente del camión</label>
+        <input name="patente_camion" id="patente_camion" class="patente" value="{{ form.patente_camion or '' }}" list="dl-camiones" autocomplete="off" placeholder="AB123CD"></div>
+      <div class="campo"><label>Patente del semi</label>
+        <input name="patente_semi" id="patente_semi" class="patente" value="{{ form.patente_semi or '' }}" list="dl-semis" autocomplete="off" placeholder="AB123CD"></div>
+    </div>
+    <datalist id="dl-choferes">{% for c in previos.choferes %}<option value="{{ c.chofer }}">{% endfor %}</datalist>
+    <datalist id="dl-transportes">{% for t in previos.transportes %}<option value="{{ t }}">{% endfor %}</datalist>
+    <datalist id="dl-camiones">{% for t in previos.patentes_camion %}<option value="{{ t }}">{% endfor %}</datalist>
+    <datalist id="dl-semis">{% for t in previos.patentes_semi %}<option value="{{ t }}">{% endfor %}</datalist>
+    <p class="ayuda">Si el chofer ya viajó antes, al elegirlo se completan solos el transporte y las patentes de su último viaje.</p>
+
+    <div class="campo"><label>Observación general</label>
+      <textarea name="observaciones" rows="2" placeholder="Cualquier dato del remito: estado de la mercadería, faltantes, destino…">{{ form.observaciones or '' }}</textarea></div>
+  </div>
+
+  <div class="tarjeta">
+    <h2 style="margin-top:0">Productos</h2>
+    <div class="tabla-renglones">
+    <table class="renglones">
+      <thead><tr>
+        <th style="width:36%">Producto</th>
+        {% if tipo == 'INGRESO' %}<th>Lote</th><th>Vencimiento</th>{% else %}<th style="width:28%">Lote (primero el que vence antes)</th>{% endif %}
+        <th style="width:90px">Pallets</th>
+        <th style="width:110px">+ Unidades sueltas</th>
+        <th style="width:120px">= Total *</th><th></th>
+      </tr></thead>
+      <tbody id="renglones"></tbody>
+    </table>
+    </div>
+    <p class="ayuda">{% if tipo == 'INGRESO' %}Si la mercadería no tiene lote, dejalo vacío. El vencimiento es opcional.{% else %}En cada lote se muestra cuánto stock queda.{% endif %}
+      <br>La cantidad se puede cargar de dos formas: pallets completos más unidades sueltas (el total se calcula solo),
+      o directamente la cantidad total en unidades (bolsas, tambores…). Así se puede fraccionar: por ejemplo, sacar 10 bolsas de un pallet.
+      Si el producto no tiene cargadas las unidades por pallet, escribí la cantidad total.</p>
+    <p class="acciones" style="margin-top:12px">
+      <button type="button" class="boton secundario" id="agregar">+ Agregar otro producto</button>
+      <a href="#" id="nuevo-producto">¿No está el producto? Crealo acá</a>
+    </p>
+    <p class="ayuda" id="aviso-empresa">Elegí la empresa para ver sus productos.</p>
+  </div>
+
+  {% if tipo == 'INGRESO' %}
+  <div class="tarjeta">
+    <label class="check"><input type="checkbox" name="crear_pallets" value="1" {{ 'checked' if form.crear_pallets == '1' }}>
+      Armar los pallets con su etiqueta QR</label>
+    <p class="ayuda" style="margin:6px 0 0">Para cada producto con unidades por pallet se arman los pallets completos y uno más con lo que sobra
+      (por ejemplo, 100 bolsas con 40 por pallet = 3 pallets: 40, 40 y 20). Después de guardar, imprimí las etiquetas y pegalas.
+      Si un pallet llegó con dos lotes, se juntan desde la ficha del pallet.</p>
+  </div>
+  {% else %}
+  <p class="ayuda">Los pallets: si el egreso se carga acá, el programa descuenta primero la mercadería sin etiqueta, después pallets completos,
+    y lo que sobra de un pallet empezado. Para que salgan exactamente los pallets que se cargan en el camión, usá
+    <a href="{{ url_for('deposito.terminal_despachar') }}">Despachar con la terminal</a>.</p>
+  {% endif %}
+
+  <button class="boton {{ 'verde' if tipo == 'INGRESO' else 'rojo' }}">Guardar {{ tipos[tipo]|lower }}</button>
+  <a class="boton secundario" href="{{ url_for('stock.inicio') }}">Cancelar</a>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const empresa = document.getElementById('empresa');
+  if (!empresa) return;
+  const cuerpo = document.getElementById('renglones');
+  const aviso = document.getElementById('aviso-empresa');
+  const linkNuevo = document.getElementById('nuevo-producto');
+  const esEgreso = {{ 'true' if tipo == 'EGRESO' else 'false' }};
+  const hoy = '{{ hoy_iso }}', limite = '{{ limite_aviso }}';
+  const iniciales = {{ renglones|tojson }};
+  const previos = {{ previos|tojson }};
+  let productos = [];
+
+  const fmt = n => Number(n).toLocaleString('es-AR', {maximumFractionDigits: 3});
+  const fmtCampo = n => Number(n).toLocaleString('es-AR', {maximumFractionDigits: 3, useGrouping: false});
+  const dmy = iso => iso ? iso.split('-').reverse().join('/') : '';
+  function esc(t) { const d = document.createElement('div'); d.textContent = t == null ? '' : t; return d.innerHTML; }
+  function leerNumero(t) {
+    // Igual que el programa: '1.234,5' = 1234,5 ; '1.000' = mil ; '2.5' = 2,5
+    t = String(t || '').trim().replace(/\s/g, '');
+    if (!t) return NaN;
+    if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+    else if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+    return Number(t);
+  }
+  function textoPallets(cant, porPallet, unidad) {
+    if (!porPallet || !(cant > 0)) return '';
+    const enteros = Math.floor(cant / porPallet + 1e-9);
+    let resto = cant - enteros * porPallet;
+    if (resto < 1e-9) resto = 0;
+    const palabra = enteros === 1 ? 'pallet' : 'pallets';
+    if (!resto) return '= ' + enteros + ' ' + palabra;
+    if (!enteros) return '= menos de 1 pallet';
+    return '= ' + enteros + ' ' + palabra + ' + ' + fmt(resto) + ' ' + (unidad || '').toLowerCase();
+  }
+
+  // ---- transporte: autocompletar con el último viaje del chofer
+  const chofer = document.getElementById('chofer');
+  chofer.addEventListener('change', () => {
+    const c = previos.choferes.find(x => x.chofer.toLowerCase() === chofer.value.trim().toLowerCase());
+    if (!c) return;
+    for (const campo of ['transporte', 'patente_camion', 'patente_semi']) {
+      const input = document.getElementById(campo);
+      if (!input.value.trim()) input.value = c[campo];
+    }
+  });
+  document.querySelectorAll('input.patente').forEach(i =>
+    i.addEventListener('blur', () => { i.value = i.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); }));
+
+  // ---- renglones de productos
+  function productoDe(id) { return productos.find(x => String(x.id) === String(id)); }
+
+  function opcionesProducto(sel) {
+    let html = '<option value="">Elegí un producto…</option>';
+    for (const p of productos) {
+      const s = String(p.id) === String(sel) ? ' selected' : '';
+      const extra = esEgreso ? ` · stock ${fmt(p.stock)}` : '';
+      html += `<option value="${p.id}"${s}>${esc(p.codigo)} - ${esc(p.descripcion)} (${esc(p.unidad)})${extra}</option>`;
+    }
+    return html;
+  }
+
+  function opcionesLote(prodId, sel) {
+    const p = productoDe(prodId);
+    if (!p) return '<option value="">—</option>';
+    if (!p.lotes.length) return '<option value="">Sin stock</option>';
+    let html = '';
+    p.lotes.forEach(l => {
+      const s = String(l.id) === String(sel) ? ' selected' : '';
+      let txt = l.lote ? 'Lote ' + l.lote : 'Sin lote';
+      if (l.vencimiento) txt += ' · vence ' + dmy(l.vencimiento) + (l.vencimiento < hoy ? ' (VENCIDO)' : (l.vencimiento <= limite ? ' (por vencer)' : ''));
+      txt += ' · hay ' + fmt(l.stock) + ' ' + p.unidad;
+      const pal = textoPallets(l.stock, p.por_pallet, p.unidad);
+      if (pal) txt += ' (' + pal.slice(2) + ')';
+      html += `<option value="${l.id}"${s}>${esc(txt)}</option>`;
+    });
+    return html;
+  }
+
+  function agregar(r) {
+    r = r || {};
+    const tr = document.createElement('tr');
+    const celdaLote = esEgreso
+      ? `<td><select name="lote_id">${opcionesLote(r.producto_id, r.lote_id)}</select></td>`
+      : `<td><input name="lote" value="${esc(r.lote)}" placeholder="Sin lote"></td>
+         <td><input type="date" name="vencimiento" value="${esc(r.vencimiento)}"></td>`;
+    tr.innerHTML = `<td><select name="producto_id">${opcionesProducto(r.producto_id)}</select></td>
+      ${celdaLote}
+      <td><input class="pallets-input" inputmode="decimal" placeholder="—" aria-label="Pallets completos"></td>
+      <td><input class="sueltas-input" inputmode="decimal" placeholder="—" aria-label="Unidades sueltas"></td>
+      <td><input name="cantidad" inputmode="decimal" placeholder="0" value="${esc(r.cantidad)}" aria-label="Cantidad total">
+          <div class="conv"></div></td>
+      <td><button type="button" class="boton chico secundario" title="Quitar">✕</button></td>`;
+    const selProd = tr.querySelector('select[name=producto_id]');
+    const cant = tr.querySelector('input[name=cantidad]');
+    const pal = tr.querySelector('.pallets-input');
+    const sue = tr.querySelector('.sueltas-input');
+    const conv = tr.querySelector('.conv');
+    const r3 = n => Math.round(n * 1000) / 1000;
+
+    function porPallet() { const p = productoDe(selProd.value); return p && p.por_pallet ? Number(p.por_pallet) : 0; }
+    function actualizarConv() {
+      // Debajo del total: en qué unidad se cuenta (bolsas, tambores…).
+      const p = productoDe(selProd.value);
+      conv.textContent = p ? 'en ' + (p.unidad || '').toLowerCase() : '';
+    }
+    // Pallets completos + sueltas -> total
+    function desdePartes() {
+      const pp = porPallet();
+      if (!pp) return;
+      const P = leerNumero(pal.value), s = leerNumero(sue.value);
+      const total = (P > 0 ? P : 0) * pp + (s > 0 ? s : 0);
+      cant.value = total > 0 ? fmtCampo(r3(total)) : '';
+      actualizarConv();
+    }
+    // Total -> pallets completos + sueltas
+    function desdeTotal() {
+      const pp = porPallet(), t = leerNumero(cant.value);
+      if (!pp || !(t > 0)) { pal.value = ''; sue.value = ''; actualizarConv(); return; }
+      const P = Math.floor(t / pp + 1e-9);
+      const s = r3(t - P * pp);
+      pal.value = String(P);
+      sue.value = s > 1e-9 ? fmtCampo(s) : '0';
+      actualizarConv();
+    }
+    function prepararPallets() {
+      const pp = porPallet();
+      const ayuda = pp ? `1 pallet = ${fmt(pp)} unidades`
+                       : 'Este producto no tiene cargadas las unidades por pallet: escribí la cantidad total';
+      for (const i of [pal, sue]) { i.disabled = !pp; i.placeholder = pp ? '0' : '—'; i.title = ayuda; }
+      desdeTotal();
+    }
+    cant.addEventListener('input', desdeTotal);
+    pal.addEventListener('input', desdePartes);
+    sue.addEventListener('input', desdePartes);
+    selProd.addEventListener('change', () => {
+      if (esEgreso) tr.querySelector('select[name=lote_id]').innerHTML = opcionesLote(selProd.value);
+      prepararPallets();
+    });
+    tr.querySelector('button').addEventListener('click', () => { tr.remove(); if (!cuerpo.children.length) agregar(); });
+    cuerpo.appendChild(tr);
+    prepararPallets();
+  }
+
+  async function cargarProductos(conservar) {
+    const id = empresa.value;
+    linkNuevo.href = '{{ url_for("stock.producto_form") }}?empresa_id=' + id + '&volver=' + encodeURIComponent(location.pathname + '?empresa_id=' + id);
+    if (!id) { productos = []; aviso.style.display = ''; }
+    else {
+      const r = await fetch('{{ url_for("stock.api_productos") }}?empresa_id=' + id);
+      productos = await r.json();
+      aviso.style.display = productos.length ? 'none' : '';
+      aviso.textContent = productos.length ? '' : 'Esta empresa todavía no tiene productos. Crealos con el enlace de arriba.';
+    }
+    cuerpo.innerHTML = '';
+    const previosRenglones = conservar || [];
+    if (previosRenglones.length) previosRenglones.forEach(agregar); else agregar();
+  }
+
+  empresa.addEventListener('change', () => cargarProductos());
+  document.getElementById('agregar').addEventListener('click', () => agregar());
+  cargarProductos(iniciales);
+})();
+</script>
+{% endblock %}

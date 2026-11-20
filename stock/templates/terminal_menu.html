@@ -1,0 +1,10 @@
+{% extends "terminal_base.html" %}
+{% block encabezado %}Terminal del depósito{% endblock %}
+{% block contenido %}
+<nav class="menu">
+  <a href="{{ url_for('deposito.terminal_consultar') }}">🔎 Consultar<small>Escaneá un pallet o una estiba y mirá qué tiene.</small></a>
+  <a href="{{ url_for('deposito.terminal_ubicar') }}">📍 Ubicar pallets<small>Escaneá el pallet y después la estiba donde lo dejás.</small></a>
+  <a href="{{ url_for('deposito.terminal_despachar') }}">🚚 Despachar<small>Escaneá los pallets que suben al camión y confirmá el egreso.</small></a>
+</nav>
+<p class="ayuda centro"><a href="{{ url_for('stock.inicio') }}">Ir al programa completo</a></p>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "terminal_base.html" %}
+{% from "_terminal_macros.html" import escaner %}
+{% block encabezado %}Ubicar pallets{% endblock %}
+{% block contenido %}
+<form method="post">
+  <input type="hidden" name="pallet_id" value="{{ pendiente.id if pendiente else '' }}">
+  <input type="hidden" name="ubicacion_id" value="{{ fija.id if fija else '' }}">
+  {% if fija %}
+    <p class="paso">Escaneá los pallets que dejás en <strong>{{ corto_ubicacion(fija) }}</strong>.</p>
+  {% elif pendiente %}
+    <p class="paso">Ahora escaneá la estiba donde dejás el pallet <strong>{{ pendiente.codigo }}</strong>.</p>
+  {% else %}
+    <p class="paso">Escaneá un pallet y después la estiba donde lo dejás.</p>
+  {% endif %}
+  {{ escaner('Pallet o estiba') }}
+  {% if fija %}
+    <div class="tarjeta fija">
+      Modo estiba: todo lo que escanees queda en <strong>{{ corto_ubicacion(fija) }}</strong> ({{ nombre_ubicacion(fija) }}).
+      <button class="boton secundario" name="accion" value="soltar">Terminar con esta estiba</button>
+    </div>
+  {% elif pendiente %}
+    {% with p=pendiente %}{% include "_terminal_pallet.html" %}{% endwith %}
+    <button class="boton secundario" name="accion" value="cancelar">Cancelar este pallet</button>
+  {% else %}
+    <p class="ayuda">¿Vas a dejar varios pallets en la misma estiba? Escaneá primero la estiba y después los pallets, uno atrás del otro.</p>
+  {% endif %}
+</form>
+{% if ultimos %}
+<h3>Últimos ubicados</h3>
+<ul class="ultimos">
+  {% for u in ultimos %}<li><strong>{{ u.pallet }}</strong> → {{ corto_ubicacion(u) if u.calle else 'sin ubicación' }} <span class="ayuda">{{ u.creado_en|fecha }} {{ u.creado_en[11:16] }}</span></li>{% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

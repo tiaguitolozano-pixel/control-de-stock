@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block titulo %}Productos{% endblock %}
+{% block contenido %}
+<h1>Productos</h1>
+<div class="acciones">
+  <a class="boton" href="{{ url_for('stock.producto_form', empresa_id=empresa_id) }}">+ Nuevo producto</a>
+  <a class="boton secundario" href="{{ url_for('stock.envases_lista') }}">Tipos de envase</a>
+</div>
+<div class="tarjeta">
+  <form class="filtros" method="get">
+    <div class="campo"><label>Empresa</label>
+      <select name="empresa_id" onchange="this.form.submit()">
+        <option value="">Todas</option>
+        {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="campo"><label>Buscar</label><input name="buscar" value="{{ buscar }}" placeholder="Código o descripción"></div>
+    <button class="boton">Filtrar</button>
+  </form>
+</div>
+<div class="tabla">
+<table>
+  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th>Envase</th><th class="num">Por pallet</th><th class="num">Mínimo</th><th class="num">Stock</th><th></th></tr></thead>
+  <tbody>
+  {% for p in productos %}
+    <tr>
+      <td>{{ p.empresa }}</td>
+      <td><a href="{{ url_for('stock.producto_ficha', producto_id=p.id) }}">{{ p.codigo }}</a></td>
+      <td>{{ p.descripcion }} {% if not p.activo %}<span class="etq inactivo">inactivo</span>{% endif %}</td>
+      <td>{{ p.unidad }}</td>
+      <td class="num">{{ p.unidades_por_pallet|num if p.unidades_por_pallet else '' }}</td>
+      <td class="num">{{ p.stock_minimo|num if p.stock_minimo else '' }}</td>
+      <td class="num">{{ p.stock|num }}</td>
+      <td class="num"><a class="boton chico secundario" href="{{ url_for('stock.producto_form', producto_id=p.id) }}">Editar</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="vacio">No hay productos. {% if empresas %}<a href="{{ url_for('stock.producto_form', empresa_id=empresa_id) }}">Cargá uno</a>.{% else %}Primero <a href="{{ url_for('stock.empresa_form') }}">cargá una empresa</a>.{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

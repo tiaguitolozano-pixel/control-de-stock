@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Etiquetas de pallets</title>
+  {% include "_etiquetas_estilo.html" %}
+  <style>
+    .etiqueta { padding: 6mm; gap: 2.5mm; }
+    .empresa { font-weight: 700; text-transform: uppercase; border-bottom: .7mm solid #000; padding-bottom: 1.5mm; line-height: 1.15; }
+    .cuerpo { flex: 1; display: flex; flex-direction: column; gap: 2.5mm; min-height: 0; }
+    .lado-qr { text-align: center; }
+    .codigo { font-weight: 800; letter-spacing: .5px; margin-top: 1mm; }
+    .lado-datos { flex: 1; display: flex; flex-direction: column; gap: 2mm; min-height: 0; }
+    .linea { border-top: .3mm solid #000; padding-top: 1.5mm; line-height: 1.25; }
+    .linea .cantidad { font-weight: 700; }
+    .pie { margin-top: auto; border-top: .3mm solid #000; padding-top: 1.5mm; }
+    .n4 .empresa { font-size: 14pt; } .n4 .qr svg { width: 50mm; height: 50mm; } .n4 .codigo { font-size: 24pt; }
+    .n4 .lado-datos { font-size: 10pt; } .n4 .cantidad { font-size: 14pt; } .n4 .pie { font-size: 8.5pt; }
+    .n2 .etiqueta { padding: 9mm 12mm; }
+    .n2 .cuerpo { flex-direction: row; gap: 9mm; }
+    .n2 .empresa { font-size: 20pt; } .n2 .qr svg { width: 82mm; height: 82mm; } .n2 .codigo { font-size: 30pt; }
+    .n2 .lado-datos { font-size: 16pt; } .n2 .cantidad { font-size: 24pt; } .n2 .pie { font-size: 12pt; }
+    .n1 .etiqueta { padding: 15mm; }
+    .n1 .empresa { font-size: 28pt; } .n1 .qr svg { width: 125mm; height: 125mm; } .n1 .codigo { font-size: 46pt; }
+    .n1 .lado-datos { font-size: 18pt; } .n1 .cantidad { font-size: 26pt; } .n1 .pie { font-size: 14pt; }
+  </style>
+</head>
+<body>
+  <div class="barra">
+    <strong>{{ total }} etiqueta{{ 's' if total != 1 }}</strong>
+    <button onclick="window.print()">🖨 Imprimir</button>
+    <span>Por hoja A4:
+      {% for n in (4, 2, 1) %}<a class="{{ 'activo' if n == por_hoja }}" href="{{ url_for('deposito.etiquetas_pallets', por_hoja=n, **parametros) }}">{{ n }}</a>{% endfor %}</span>
+    <span class="nota">En la ventana de impresión elegí papel A4, márgenes "Ninguno" y escala 100%.</span>
+  </div>
+  {% for hoja in hojas %}
+  <div class="hoja n{{ por_hoja }}">
+    {% for p in hoja %}
+    <div class="etiqueta">
+      <div class="empresa">{{ p.empresa }}</div>
+      <div class="cuerpo">
+        <div class="lado-qr">
+          <div class="qr">{{ qr_svg(p.codigo) }}</div>
+          <div class="codigo">{{ p.codigo }}</div>
+        </div>
+        <div class="lado-datos">
+          {% for l in p.lineas %}
+          <div class="linea">
+            <div><strong>{{ l.codigo }}</strong> · {{ l.descripcion }}</div>
+            <div>Lote <strong>{{ l.lote or '(sin lote)' }}</strong>{% if l.vencimiento %} · Vence <strong>{{ l.vencimiento|fecha }}</strong>{% endif %}</div>
+            <div class="cantidad">{{ l.cantidad|num }} {{ l.unidad|lower }}</div>
+          </div>
+          {% else %}
+          <div class="linea">Pallet vacío</div>
+          {% endfor %}
+          <div class="pie">{% if p.remito %}Ingreso {{ p.fecha_ingreso|fecha }} · Remito {{ p.remito }}{% else %}Armado el {{ p.creado_en|fecha }}{% endif %}{% if p.numero %} · Pallet {{ p.numero[0] }} de {{ p.numero[1] }}{% endif %}</div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="vacio">No hay pallets para imprimir.</div>
+  {% endfor %}
+</body>
+</html>

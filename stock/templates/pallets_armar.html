@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block titulo %}Armar pallets{% endblock %}
+{% block contenido %}
+<h1>Armar pallets para el stock sin etiqueta</h1>
+{% if nuevos %}
+<div class="tarjeta aviso-listo">
+  <p style="margin-top:0"><strong>Pallets armados.</strong> Ahora imprimí las etiquetas, pegá cada una en su pallet y ubicalos escaneando con la terminal.</p>
+  <a class="boton verde" target="_blank" href="{{ url_for('deposito.etiquetas_pallets', ids=nuevos) }}">🖨 Imprimir las etiquetas</a>
+</div>
+{% endif %}
+<div class="tarjeta">
+  <p style="margin-top:0">Acá aparece la mercadería en stock que todavía no está en ningún pallet con etiqueta (por ejemplo, el stock inicial cargado desde Excel).
+    Para cada lote se arman pallets completos y uno más con lo que sobra. Si un pallet tiene dos lotes, después se juntan desde la ficha del pallet.</p>
+  <form class="filtros" method="get">
+    <div class="campo"><label>Empresa</label>
+      <select name="empresa_id" onchange="this.form.submit()">
+        <option value="">Todas</option>
+        {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="campo"><label>Buscar</label><input name="buscar" value="{{ buscar }}" placeholder="Código, descripción o lote"></div>
+    <button class="boton">Filtrar</button>
+  </form>
+</div>
+<form method="post" id="form-armar">
+  <input type="hidden" name="empresa_id" value="{{ empresa_id or '' }}">
+  <div class="tabla">
+  <table>
+    <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Sin etiqueta</th><th>Envase</th><th>Por pallet</th><th class="num">Pallets</th><th></th></tr></thead>
+    <tbody>
+    {% for r in filas %}
+      <tr>
+        <td>{{ r.empresa }}</td><td>{{ r.codigo }}</td><td>{{ r.descripcion }}</td><td>{{ r.lote or '(sin lote)' }}</td><td>{{ r.vencimiento|fecha }}</td>
+        <td class="num"><strong>{{ r.sin_etiqueta|num }}</strong></td><td>{{ r.unidad }}</td>
+        <td><input type="hidden" name="lote_id" value="{{ r.id }}">
+            <input name="por_pallet" class="por-pallet" inputmode="decimal" style="width:90px" data-cant="{{ r.sin_etiqueta }}"
+                   value="{{ r.unidades_por_pallet|num if r.unidades_por_pallet else '' }}"></td>
+        <td class="num pallets-calc">{{ cuantos(r.sin_etiqueta, r.unidades_por_pallet) or '' }}</td>
+        <td><button class="boton chico" name="solo" value="{{ r.id }}">Armar</button></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="10" class="vacio">No hay mercadería sin etiqueta para estos filtros.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if filas %}
+  <p class="acciones" style="margin-top:12px">
+    <button class="boton" name="solo" value="" id="armar-todos">Armar todos los de la lista</button>
+    <span class="ayuda">Los renglones sin "Por pallet" se saltean.</span>
+  </p>
+  {% endif %}
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+function leerNumero(t) {
+  t = String(t || '').trim().replace(/\s/g, '');
+  if (!t) return null;
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  else if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+function recalcular() {
+  let total = 0;
+  document.querySelectorAll('.por-pallet').forEach(function (inp) {
+    const por = leerNumero(inp.value), cant = Number(inp.dataset.cant);
+    const n = por && por > 0 ? Math.ceil(cant / por - 1e-6) : 0;
+    inp.closest('tr').querySelector('.pallets-calc').textContent = n || '';
+    total += n;
+  });
+  const boton = document.getElementById('armar-todos');
+  if (boton) boton.textContent = 'Armar todos los de la lista (' + total + (total === 1 ? ' pallet)' : ' pallets)');
+}
+document.querySelectorAll('.por-pallet').forEach(function (inp) { inp.addEventListener('input', recalcular); });
+recalcular();
+</script>
+{% endblock %}

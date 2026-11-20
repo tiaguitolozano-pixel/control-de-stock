@@ -1,0 +1,25 @@
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #000; background: #dde2e7; }
+  .barra { position: sticky; top: 0; z-index: 2; display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+           padding: 10px 16px; background: #1f4e79; color: #fff; font-size: 15px; }
+  .barra button { font: inherit; font-weight: 700; padding: 8px 16px; border: 0; border-radius: 6px; background: #fff; color: #1f4e79; cursor: pointer; }
+  .barra a { color: #fff; margin: 0 3px; }
+  .barra a.activo { font-weight: 700; text-decoration: none; border-bottom: 2px solid #fff; }
+  .barra .nota { opacity: .85; font-size: 13px; }
+  .vacio { padding: 40px; text-align: center; font-size: 18px; }
+  .hoja { width: 210mm; height: 297mm; margin: 8mm auto; background: #fff; display: grid; overflow: hidden;
+          page-break-after: always; break-after: page; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+  .hoja:last-child { page-break-after: auto; break-after: auto; }
+  .hoja.n4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+  .hoja.n2 { grid-template-rows: 1fr 1fr; }
+  .hoja.n1 { grid-template-rows: 1fr; }
+  .etiqueta { border: .3mm dashed #aaa; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+  .qr svg { display: block; margin: 0 auto; }
+  @media print {
+    body { background: #fff; }
+    .barra { display: none; }
+    .hoja { margin: 0; box-shadow: none; }
+  }
+</style>

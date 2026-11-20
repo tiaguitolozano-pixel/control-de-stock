@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block titulo %}Depósito{% endblock %}
+{% block contenido %}
+<h1>Depósito · Galpón {{ galpon }}</h1>
+<div class="acciones">
+  {% for g in galpones %}<a class="boton chico {{ '' if g == galpon else 'secundario' }}" href="{{ url_for('deposito.deposito', galpon=g) }}">Galpón {{ g }}</a>{% endfor %}
+  {% if calles %}<a class="boton secundario" target="_blank" href="{{ url_for('deposito.etiquetas_ubicaciones', galpon=galpon) }}">🖨 Etiquetas de todas las estibas</a>{% endif %}
+  <a class="boton secundario" href="{{ url_for('deposito.pallets_lista') }}">Ver pallets</a>
+  <a class="boton secundario" href="{{ url_for('deposito.terminal') }}">📱 Terminal</a>
+</div>
+{% if sin_ubicar %}
+<a class="tarjeta enlace aviso-tarjeta" href="{{ url_for('deposito.pallets_lista', sin_ubicar=1) }}">
+  Hay <strong>{{ sin_ubicar }}</strong> pallet{{ 's' if sin_ubicar != 1 }} con mercadería sin ubicar. Ubicalos con la terminal: escaneás el pallet y después la estiba.</a>
+{% endif %}
+{% if not calles %}
+  <div class="tarjeta">
+    <p style="margin:0">Todavía no hay estibas cargadas en el galpón {{ galpon }}. Cargá cada calle con la cantidad de estibas que tiene
+      (abajo, en <strong>Agregar estibas</strong>): el programa las numera 1, 2, 3… y después imprimís una etiqueta con QR para cada una.</p>
+  </div>
+{% endif %}
+{% for calle, estibas in calles.items() %}
+  <div class="calle">
+    <div class="calle-nombre"><strong>Calle {{ calle }}</strong>
+      <span class="ayuda">{{ estibas|length }} estibas</span>
+      <a class="chico no-imprimir" target="_blank" href="{{ url_for('deposito.etiquetas_ubicaciones', galpon=galpon, calle=calle) }}">🖨 etiquetas</a></div>
+    <div class="estibas">
+      {% for u in estibas %}
+        {% set n = ocupacion.get(u.id, 0) %}
+        <a class="estiba {{ 'ocupada' if n else 'libre' }}{{ ' inactiva' if not u.activa }}" href="{{ url_for('deposito.ubicacion', ubicacion_id=u.id) }}" title="{{ nombre_ubicacion(u) }}: {{ n }} pallet{{ 's' if n != 1 }}">
+          <span class="nro">{{ u.estiba }}</span><span class="cant">{{ n if n else '·' }}</span></a>
+      {% endfor %}
+    </div>
+  </div>
+{% endfor %}
+{% if calles %}<p class="ayuda">Cada cuadrito es una estiba: arriba su número y abajo cuántos pallets con mercadería tiene. Tocá una estiba para ver qué hay.</p>{% endif %}
+
+<form method="post" action="{{ url_for('deposito.crear_estibas') }}" class="tarjeta no-imprimir">
+  <h2 style="margin-top:0">Agregar estibas</h2>
+  <div class="grilla2">
+    <div class="campo"><label>Galpón</label><input name="galpon" type="number" min="1" value="{{ galpon }}" required></div>
+    <div class="campo"><label>Calle</label><input name="calle" type="number" min="1" value="{{ ((calles|list|last) or 0) + 1 }}" required></div>
+    <div class="campo"><label>Desde la estiba</label><input name="desde" type="number" min="1" value="1"></div>
+    <div class="campo"><label>Hasta la estiba</label><input name="hasta" type="number" min="1" required placeholder="Ej.: 30"></div>
+  </div>
+  <p class="ayuda">Para el galpón 16, por ejemplo: calle 1 (una de las principales), calle 2 (la del medio) y calle 3 (la otra principal).
+    Si sirve, se pueden numerar las estibas impares de un lado de la calle y las pares del otro. Las que ya existen no se repiten.</p>
+  <button class="boton">Crear estibas</button>
+</form>
+{% endblock %}
