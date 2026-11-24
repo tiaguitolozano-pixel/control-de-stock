@@ -155,7 +155,7 @@ def test_exportar_excel(client):
     r = client.get("/stock/excel")
     ws = load_workbook(BytesIO(r.data)).active
     assert ws["A1"].value == "Empresa"
-    assert ws["D1"].value == "Stock" and ws["D2"].value == 10
+    assert ws["D1"].value == "Cantidad" and ws["D2"].value == 10
     r = client.get("/movimientos/excel?tipo=INGRESO")
     ws = load_workbook(BytesIO(r.data)).active
     assert ws["B1"].value == "Remito" and ws["B2"].value == "R-1"

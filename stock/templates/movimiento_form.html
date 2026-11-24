@@ -5,7 +5,7 @@
 {% if not empresas %}
   <div class="tarjeta">Primero tenés que <a href="{{ url_for('stock.empresa_form') }}">cargar una empresa</a>.</div>
 {% else %}
-<form method="post" id="form-mov">
+<form method="post" id="form-mov" enctype="multipart/form-data">
   <div class="tarjeta">
     <div class="grilla2">
       <div class="campo"><label>Empresa *</label>
@@ -31,12 +31,20 @@
         <input name="patente_camion" id="patente_camion" class="patente" value="{{ form.patente_camion or '' }}" list="dl-camiones" autocomplete="off" placeholder="AB123CD"></div>
       <div class="campo"><label>Patente del semi</label>
         <input name="patente_semi" id="patente_semi" class="patente" value="{{ form.patente_semi or '' }}" list="dl-semis" autocomplete="off" placeholder="AB123CD"></div>
+      <div class="campo"><label>N° de contenedor</label>
+        <input name="contenedor" id="contenedor" value="{{ form.contenedor or '' }}" list="dl-contenedores" autocomplete="off" placeholder="Ej.: MSCU1234567">
+        <div class="aviso-campo" id="aviso-contenedor"></div></div>
+      <div class="campo"><label>Tipo de contenedor</label>
+        <input name="tipo_contenedor" value="{{ form.tipo_contenedor or '' }}" list="dl-tipos-contenedor" autocomplete="off" placeholder="Ej.: 40' High Cube"></div>
     </div>
     <datalist id="dl-choferes">{% for c in previos.choferes %}<option value="{{ c.chofer }}">{% endfor %}</datalist>
     <datalist id="dl-transportes">{% for t in previos.transportes %}<option value="{{ t }}">{% endfor %}</datalist>
     <datalist id="dl-camiones">{% for t in previos.patentes_camion %}<option value="{{ t }}">{% endfor %}</datalist>
     <datalist id="dl-semis">{% for t in previos.patentes_semi %}<option value="{{ t }}">{% endfor %}</datalist>
-    <p class="ayuda">Si el chofer ya viajó antes, al elegirlo se completan solos el transporte y las patentes de su último viaje.</p>
+    <datalist id="dl-contenedores">{% for t in previos.contenedores %}<option value="{{ t }}">{% endfor %}</datalist>
+    <datalist id="dl-tipos-contenedor">{% for t in previos.tipos_contenedor %}<option value="{{ t }}">{% endfor %}</datalist>
+    <p class="ayuda">Si el chofer ya viajó antes, al elegirlo se completan solos el transporte y las patentes de su último viaje.
+      El contenedor es opcional; si tiene el formato de siempre (4 letras y 7 números) el programa revisa que el último dígito esté bien.</p>
 
     <div class="campo"><label>Observación general</label>
       <textarea name="observaciones" rows="2" placeholder="Cualquier dato del remito: estado de la mercadería, faltantes, destino…">{{ form.observaciones or '' }}</textarea></div>
@@ -47,19 +55,24 @@
     <div class="tabla-renglones">
     <table class="renglones">
       <thead><tr>
-        <th style="width:36%">Producto</th>
-        {% if tipo == 'INGRESO' %}<th>Lote</th><th>Vencimiento</th>{% else %}<th style="width:28%">Lote (primero el que vence antes)</th>{% endif %}
+        <th style="width:30%">Producto</th>
+        {% if tipo == 'INGRESO' %}<th style="width:13%">Lote</th><th style="width:150px">Vencimiento</th>{% else %}<th style="width:26%">Lote (primero el que vence antes)</th>{% endif %}
         <th style="width:90px">Pallets</th>
         <th style="width:110px">+ Unidades sueltas</th>
-        <th style="width:120px">= Total *</th><th></th>
+        <th style="width:120px">= Total *</th>
+        <th style="width:110px" class="num">Kilos</th><th></th>
       </tr></thead>
       <tbody id="renglones"></tbody>
+      <tfoot><tr class="total">
+        <td colspan="{{ 5 if tipo == 'INGRESO' else 4 }}">Totales</td>
+        <td id="total-cantidades" class="num"></td><td id="total-kilos" class="num"></td><td></td>
+      </tr></tfoot>
     </table>
     </div>
     <p class="ayuda">{% if tipo == 'INGRESO' %}Si la mercadería no tiene lote, dejalo vacío. El vencimiento es opcional.{% else %}En cada lote se muestra cuánto stock queda.{% endif %}
-      <br>La cantidad se puede cargar de dos formas: pallets completos más unidades sueltas (el total se calcula solo),
-      o directamente la cantidad total en unidades (bolsas, tambores…). Así se puede fraccionar: por ejemplo, sacar 10 bolsas de un pallet.
-      Si el producto no tiene cargadas las unidades por pallet, escribí la cantidad total.</p>
+      <br>La cantidad se carga como pallets completos más unidades sueltas, o directamente el total (bolsas, tambores…); así también se puede fraccionar.
+      Si en "unidades sueltas" escribís más de un pallet, al salir del casillero se pasan solas a pallets: 100 bolsas con 40 por pallet = 2 pallets + 20 sueltas, y el total sigue en 100.
+      Los kilos son los kilos por unidad del producto × la cantidad.</p>
     <p class="acciones" style="margin-top:12px">
       <button type="button" class="boton secundario" id="agregar">+ Agregar otro producto</button>
       <a href="#" id="nuevo-producto">¿No está el producto? Crealo acá</a>
@@ -67,19 +80,51 @@
     <p class="ayuda" id="aviso-empresa">Elegí la empresa para ver sus productos.</p>
   </div>
 
-  {% if tipo == 'INGRESO' %}
   <div class="tarjeta">
+    <h2 style="margin-top:0">Insumos adicionales</h2>
+    {% if insumos %}
+    <table class="insumos">
+      {% for i in insumos %}
+      {% set cs = campos_insumo(i) %}
+      <tr>
+        <th>{{ i.nombre }}{% if i.unidad|lower != i.nombre|lower %} <span class="ayuda">({{ i.unidad }})</span>{% endif %}</th>
+        {% if i.con_propietario %}
+          <td><label>Propios</label><input name="{{ cs[0][0] }}" value="{{ textos_insumos.get(cs[0][0], '') }}" inputmode="decimal" placeholder="0" autocomplete="off"></td>
+          <td><label>Del cliente</label><input name="{{ cs[1][0] }}" value="{{ textos_insumos.get(cs[1][0], '') }}" inputmode="decimal" placeholder="0" autocomplete="off" class="insumo-cliente" data-insumo="{{ i.id }}" data-unidad="{{ i.unidad }}"></td>
+          <td class="saldo-insumo" id="saldo-insumo-{{ i.id }}"></td>
+        {% else %}
+          <td><label>Cantidad</label><input name="{{ cs[0][0] }}" value="{{ textos_insumos.get(cs[0][0], '') }}" inputmode="decimal" placeholder="0" autocomplete="off"></td>
+          <td></td><td></td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    <p class="ayuda" style="margin-bottom:0">Pallets propios: son del depósito y solo quedan anotados en el remito. Pallets del cliente: se lleva la cuenta de cuántos tiene cada empresa
+      en el depósito (suman con los ingresos y restan con los egresos), así que no pueden salir más de los que hay.
+      <a href="{{ url_for('stock.insumos_lista') }}">Ver los saldos o agregar otros insumos</a></p>
+  </div>
+
+  <div class="tarjeta">
+    <h2 style="margin-top:0">Opciones</h2>
+    {% if tipo == 'INGRESO' %}
     <label class="check"><input type="checkbox" name="crear_pallets" value="1" {{ 'checked' if form.crear_pallets == '1' }}>
       Armar los pallets con su etiqueta QR</label>
-    <p class="ayuda" style="margin:6px 0 0">Para cada producto con unidades por pallet se arman los pallets completos y uno más con lo que sobra
+    <p class="ayuda" style="margin:6px 0 14px">Para cada producto con unidades por pallet se arman los pallets completos y uno más con lo que sobra
       (por ejemplo, 100 bolsas con 40 por pallet = 3 pallets: 40, 40 y 20). Después de guardar, imprimí las etiquetas y pegalas.
       Si un pallet llegó con dos lotes, se juntan desde la ficha del pallet.</p>
+    {% else %}
+    <p class="ayuda" style="margin-top:0">Los pallets: si el egreso se carga acá, el programa descuenta primero la mercadería sin etiqueta, después pallets completos,
+      y lo que sobra de un pallet empezado. Para que salgan exactamente los pallets que se cargan en el camión, usá
+      <a href="{{ url_for('deposito.terminal_despachar') }}">Despachar con la terminal</a>.</p>
+    {% endif %}
+    <div class="campo" style="margin-bottom:0"><label>Fotos (opcional)</label>
+      <input type="file" name="fotos" id="fotos" accept="image/*" multiple>
+      <div id="fotos-previa" class="fotos-previa"></div>
+      <div class="ayuda">{% if tipo == 'INGRESO' %}Por ejemplo, de la mercadería al llegar o de algún daño.{% else %}Por ejemplo, del camión cargado o del precinto.{% endif %}
+        Podés sacarlas con el celular o elegirlas de la computadora; se achican solas antes de guardarse. Después se pueden agregar más desde el remito.</div>
+    </div>
   </div>
-  {% else %}
-  <p class="ayuda">Los pallets: si el egreso se carga acá, el programa descuenta primero la mercadería sin etiqueta, después pallets completos,
-    y lo que sobra de un pallet empezado. Para que salgan exactamente los pallets que se cargan en el camión, usá
-    <a href="{{ url_for('deposito.terminal_despachar') }}">Despachar con la terminal</a>.</p>
-  {% endif %}
 
   <button class="boton {{ 'verde' if tipo == 'INGRESO' else 'rojo' }}">Guardar {{ tipos[tipo]|lower }}</button>
   <a class="boton secundario" href="{{ url_for('stock.inicio') }}">Cancelar</a>
@@ -88,10 +133,12 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='fotos.js') }}"></script>
 <script>
 (function () {
   const empresa = document.getElementById('empresa');
   if (!empresa) return;
+  const form = document.getElementById('form-mov');
   const cuerpo = document.getElementById('renglones');
   const aviso = document.getElementById('aviso-empresa');
   const linkNuevo = document.getElementById('nuevo-producto');
@@ -100,9 +147,11 @@
   const iniciales = {{ renglones|tojson }};
   const previos = {{ previos|tojson }};
   let productos = [];
+  let saldosInsumos = {};
 
   const fmt = n => Number(n).toLocaleString('es-AR', {maximumFractionDigits: 3});
   const fmtCampo = n => Number(n).toLocaleString('es-AR', {maximumFractionDigits: 3, useGrouping: false});
+  const r3 = n => Math.round(n * 1000) / 1000;
   const dmy = iso => iso ? iso.split('-').reverse().join('/') : '';
   function esc(t) { const d = document.createElement('div'); d.textContent = t == null ? '' : t; return d.innerHTML; }
   function leerNumero(t) {
@@ -134,8 +183,35 @@
       if (!input.value.trim()) input.value = c[campo];
     }
   });
-  document.querySelectorAll('input.patente').forEach(i =>
+  document.querySelectorAll('#patente_camion, #patente_semi').forEach(i =>
     i.addEventListener('blur', () => { i.value = i.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); }));
+
+  // ---- contenedor: el último dígito (dígito de control, norma ISO 6346) tiene que coincidir
+  const contenedor = document.getElementById('contenedor');
+  const avisoCont = document.getElementById('aviso-contenedor');
+  function digitoControl(codigo) {
+    const valores = {};
+    let v = 10;
+    for (const letra of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') { if (v % 11 === 0) v++; valores[letra] = v++; }
+    let suma = 0;
+    for (let i = 0; i < 10; i++) {
+      const c = codigo[i];
+      suma += (/\d/.test(c) ? Number(c) : valores[c]) * Math.pow(2, i);
+    }
+    return (suma % 11) % 10;
+  }
+  function revisarContenedor() {
+    const compacto = contenedor.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    avisoCont.textContent = '';
+    if (/^[A-Z]{4}\d{6,7}$/.test(compacto)) {
+      contenedor.value = compacto;
+      const digito = digitoControl(compacto);
+      if (compacto.length === 10) avisoCont.textContent = 'Falta el último dígito: según el número, sería ' + digito + '.';
+      else if (Number(compacto[10]) !== digito) avisoCont.textContent = 'Revisá el número: el último dígito no coincide (debería ser ' + digito + '). Puede haber un error de tipeo.';
+    }
+  }
+  contenedor.addEventListener('blur', revisarContenedor);
+  if (contenedor.value) revisarContenedor();
 
   // ---- renglones de productos
   function productoDe(id) { return productos.find(x => String(x.id) === String(id)); }
@@ -167,6 +243,24 @@
     return html;
   }
 
+  // Totales al pie: cantidad por tipo de envase y kilos (kilos por unidad × cantidad).
+  function actualizarTotales() {
+    const porEnvase = new Map();
+    let kilos = 0, sinKilos = 0;
+    cuerpo.querySelectorAll('tr').forEach(tr => {
+      const p = productoDe(tr.querySelector('select[name=producto_id]').value);
+      const cant = leerNumero(tr.querySelector('input[name=cantidad]').value);
+      if (!p || !(cant > 0)) return;
+      const clave = (p.unidad || '').toLowerCase();
+      porEnvase.set(clave, (porEnvase.get(clave) || 0) + cant);
+      if (p.kilos) kilos += cant * p.kilos; else sinKilos++;
+    });
+    document.getElementById('total-cantidades').innerHTML =
+      [...porEnvase].map(([u, c]) => `<div>${fmt(r3(c))} ${esc(u)}</div>`).join('') || '—';
+    document.getElementById('total-kilos').innerHTML = (kilos ? fmt(r3(kilos)) + ' kg' : '—') +
+      (sinKilos ? `<div class="ayuda">${sinKilos === 1 ? '1 producto' : sinKilos + ' productos'} sin kilos</div>` : '');
+  }
+
   function agregar(r) {
     r = r || {};
     const tr = document.createElement('tr');
@@ -174,27 +268,34 @@
       ? `<td><select name="lote_id">${opcionesLote(r.producto_id, r.lote_id)}</select></td>`
       : `<td><input name="lote" value="${esc(r.lote)}" placeholder="Sin lote"></td>
          <td><input type="date" name="vencimiento" value="${esc(r.vencimiento)}"></td>`;
-    tr.innerHTML = `<td><select name="producto_id">${opcionesProducto(r.producto_id)}</select></td>
+    tr.innerHTML = `<td><select name="producto_id">${opcionesProducto(r.producto_id)}</select><div class="info-prod"></div></td>
       ${celdaLote}
       <td><input class="pallets-input" inputmode="decimal" placeholder="—" aria-label="Pallets completos"></td>
       <td><input class="sueltas-input" inputmode="decimal" placeholder="—" aria-label="Unidades sueltas"></td>
       <td><input name="cantidad" inputmode="decimal" placeholder="0" value="${esc(r.cantidad)}" aria-label="Cantidad total">
           <div class="conv"></div></td>
+      <td class="num kilos-renglon"></td>
       <td><button type="button" class="boton chico secundario" title="Quitar">✕</button></td>`;
     const selProd = tr.querySelector('select[name=producto_id]');
     const cant = tr.querySelector('input[name=cantidad]');
     const pal = tr.querySelector('.pallets-input');
     const sue = tr.querySelector('.sueltas-input');
     const conv = tr.querySelector('.conv');
-    const r3 = n => Math.round(n * 1000) / 1000;
+    const info = tr.querySelector('.info-prod');
+    const celdaKilos = tr.querySelector('.kilos-renglon');
 
     function porPallet() { const p = productoDe(selProd.value); return p && p.por_pallet ? Number(p.por_pallet) : 0; }
     function actualizarConv() {
-      // Debajo del total: en qué unidad se cuenta (bolsas, tambores…).
+      // Debajo del total: en qué unidad se cuenta. Al costado: los kilos del renglón.
       const p = productoDe(selProd.value);
+      const t = leerNumero(cant.value);
       conv.textContent = p ? 'en ' + (p.unidad || '').toLowerCase() : '';
+      if (!p) celdaKilos.textContent = '';
+      else if (!p.kilos) { celdaKilos.innerHTML = '<span class="ayuda" title="Cargá los kilos por unidad en el producto">sin kilos</span>'; }
+      else celdaKilos.innerHTML = (t > 0 ? '<strong>' + fmt(r3(t * p.kilos)) + ' kg</strong>' : '—');
+      actualizarTotales();
     }
-    // Pallets completos + sueltas -> total
+    // Pallets completos + sueltas -> total (mientras se escribe)
     function desdePartes() {
       const pp = porPallet();
       if (!pp) return;
@@ -203,7 +304,7 @@
       cant.value = total > 0 ? fmtCampo(r3(total)) : '';
       actualizarConv();
     }
-    // Total -> pallets completos + sueltas
+    // Total -> pallets completos + sueltas. También ordena: si las sueltas llegan a un pallet, pasan a pallets.
     function desdeTotal() {
       const pp = porPallet(), t = leerNumero(cant.value);
       if (!pp || !(t > 0)) { pal.value = ''; sue.value = ''; actualizarConv(); return; }
@@ -214,38 +315,103 @@
       actualizarConv();
     }
     function prepararPallets() {
+      const p = productoDe(selProd.value);
       const pp = porPallet();
       const ayuda = pp ? `1 pallet = ${fmt(pp)} unidades`
                        : 'Este producto no tiene cargadas las unidades por pallet: escribí la cantidad total';
       for (const i of [pal, sue]) { i.disabled = !pp; i.placeholder = pp ? '0' : '—'; i.title = ayuda; }
+      // Los datos del producto, debajo del nombre.
+      if (!p) info.textContent = '';
+      else {
+        const u = (p.unidad || '').toLowerCase();
+        info.textContent = (pp ? `${fmt(pp)} ${u} por pallet` : 'sin unidades por pallet') + ' · ' +
+                           (p.kilos ? `${fmt(p.kilos)} kg por unidad` : 'sin kilos por unidad');
+      }
       desdeTotal();
     }
     cant.addEventListener('input', desdeTotal);
     pal.addEventListener('input', desdePartes);
     sue.addEventListener('input', desdePartes);
+    // Al salir del casillero: las sueltas que completan pallets pasan a pallets (el total no cambia).
+    pal.addEventListener('change', desdeTotal);
+    sue.addEventListener('change', desdeTotal);
     selProd.addEventListener('change', () => {
       if (esEgreso) tr.querySelector('select[name=lote_id]').innerHTML = opcionesLote(selProd.value);
       prepararPallets();
     });
-    tr.querySelector('button').addEventListener('click', () => { tr.remove(); if (!cuerpo.children.length) agregar(); });
+    tr.querySelector('button').addEventListener('click', () => {
+      tr.remove();
+      if (!cuerpo.children.length) agregar();
+      actualizarTotales();
+    });
     cuerpo.appendChild(tr);
     prepararPallets();
   }
 
+  // ---- insumos: saldo de pallets del cliente de la empresa elegida
+  const insumosCliente = document.querySelectorAll('input.insumo-cliente');
+  function actualizarSaldosInsumos() {
+    insumosCliente.forEach(inp => {
+      const celda = document.getElementById('saldo-insumo-' + inp.dataset.insumo);
+      if (!empresa.value) { celda.textContent = ''; return; }
+      const hay = Number(saldosInsumos[inp.dataset.insumo] || 0);
+      const mov = leerNumero(inp.value);
+      let txt = 'De esta empresa hay ' + fmt(hay) + ' en el depósito';
+      celda.classList.remove('negativo');
+      if (mov > 0) {
+        const queda = r3(esEgreso ? hay - mov : hay + mov);
+        txt += ' → quedan ' + fmt(queda);
+        if (queda < 0) celda.classList.add('negativo');
+      }
+      celda.textContent = txt + '.';
+    });
+  }
+  insumosCliente.forEach(inp => inp.addEventListener('input', actualizarSaldosInsumos));
+
   async function cargarProductos(conservar) {
     const id = empresa.value;
     linkNuevo.href = '{{ url_for("stock.producto_form") }}?empresa_id=' + id + '&volver=' + encodeURIComponent(location.pathname + '?empresa_id=' + id);
-    if (!id) { productos = []; aviso.style.display = ''; }
+    if (!id) { productos = []; saldosInsumos = {}; aviso.style.display = ''; }
     else {
-      const r = await fetch('{{ url_for("stock.api_productos") }}?empresa_id=' + id);
+      const [r, rs] = await Promise.all([
+        fetch('{{ url_for("stock.api_productos") }}?empresa_id=' + id),
+        fetch('{{ url_for("stock.api_insumos") }}?empresa_id=' + id),
+      ]);
       productos = await r.json();
+      saldosInsumos = await rs.json();
       aviso.style.display = productos.length ? 'none' : '';
       aviso.textContent = productos.length ? '' : 'Esta empresa todavía no tiene productos. Crealos con el enlace de arriba.';
     }
     cuerpo.innerHTML = '';
     const previosRenglones = conservar || [];
     if (previosRenglones.length) previosRenglones.forEach(agregar); else agregar();
+    actualizarTotales();
+    actualizarSaldosInsumos();
   }
+
+  // ---- fotos: se achican en el navegador antes de mandarlas (ver static/fotos.js)
+  const previa = document.getElementById('fotos-previa');
+  function mostrarPrevia(archivos) {
+    previa.innerHTML = '';
+    if (archivos === null) { previa.textContent = 'Preparando las fotos… (esperá un segundo antes de guardar)'; return; }
+    let total = 0;
+    archivos.forEach(a => {
+      total += a.size;
+      if (!/^image\/(jpeg|png|webp|gif)$/.test(a.type)) return;
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(a);
+      img.alt = a.name;
+      previa.appendChild(img);
+    });
+    if (archivos.length) {
+      const txt = document.createElement('div');
+      txt.className = 'ayuda';
+      txt.textContent = (archivos.length === 1 ? '1 foto' : archivos.length + ' fotos') + ' · ' +
+                        fmt(r3(total / 1048576)) + ' MB en total';
+      previa.appendChild(txt);
+    }
+  }
+  prepararFotos(document.getElementById('fotos'), form, mostrarPrevia);
 
   empresa.addEventListener('change', () => cargarProductos());
   document.getElementById('agregar').addEventListener('click', () => agregar());

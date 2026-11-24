@@ -391,7 +391,7 @@ def test_migracion_de_la_version_anterior(tmp_path):
     app = create_app({"TESTING": True, "DATABASE": str(ruta)})
     with app.app_context():
         db = get_db()
-        assert db.execute("PRAGMA user_version").fetchone()[0] == len(MIGRACIONES) == 2
+        assert db.execute("PRAGMA user_version").fetchone()[0] == len(MIGRACIONES)
         tablas = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         assert {"ubicaciones", "pallets", "pallet_movs", "pallet_ubicaciones"} <= tablas
         assert pl.sin_etiqueta_por_lote([1]) == {1: 100}

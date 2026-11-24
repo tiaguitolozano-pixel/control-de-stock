@@ -18,7 +18,8 @@ main { max-width: 1200px; margin: 0 auto; padding: 20px 16px 60px; }
 h1 { font-size: 24px; margin: 4px 0 16px; }
 h2 { font-size: 18px; margin: 24px 0 10px; }
 .tarjeta { background: #fff; border: 1px solid var(--borde); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-.resumen { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.resumen { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.resumen .valor small { font-size: 16px; font-weight: 600; }
 .resumen .tarjeta { margin: 0; }
 .resumen .valor { font-size: 28px; font-weight: 700; }
 .resumen .etiqueta { color: var(--gris); }
@@ -78,7 +79,7 @@ tr.fila-vencida td { background: var(--rojo-claro); }
 textarea { resize: vertical; }
 input.patente { text-transform: uppercase; }
 .campo.corto { min-width: 120px; max-width: 160px; }
-td.pallets { color: var(--gris); font-size: 13px; white-space: nowrap; }
+td.pallets { color: var(--gris); font-size: 13px; min-width: 110px; }
 tr.sublote td { background: #f8fafc; font-size: 13px; color: #3c4650; border-bottom-style: dashed; }
 tr.sublote td:nth-child(2) { padding-left: 24px; }
 tr.con-lotes td { border-bottom-color: #eef1f4; }
@@ -92,9 +93,9 @@ tfoot tr.total td { background: var(--azul-claro); font-weight: 700; border-top:
 .fila-total { display: flex; justify-content: space-between; padding: 2px 0; font-variant-numeric: tabular-nums; }
 .fila-total.diferencia { border-top: 1px solid var(--borde); margin-top: 4px; padding-top: 6px; }
 td.chico { font-size: 13px; color: var(--gris); }
-.conv { font-size: 12px; color: var(--gris); margin-top: 3px; min-height: 14px; white-space: nowrap; }
+.conv { font-size: 12px; color: var(--gris); margin-top: 3px; min-height: 14px; }
 .tabla-renglones { overflow-x: auto; }
-.renglones { min-width: 720px; }
+.renglones { min-width: 980px; }
 .renglones input:disabled { background: #f1f3f5; }
 form.en-linea { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
 form.en-linea input { width: 240px; }
@@ -122,3 +123,36 @@ a.tarjeta.aviso-tarjeta { background: var(--amarillo-claro); border-color: #e2c4
 .grilla-acciones { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 16px; }
 .grilla-acciones .tarjeta { margin: 0; }
 .grilla-acciones h3 { margin: 0 0 8px; font-size: 16px; }
+/* --- kilos, insumos, fotos e historial por lote --- */
+.info-prod { font-size: 12px; color: var(--gris); margin-top: 3px; }
+.renglones tfoot td { background: var(--azul-claro); font-weight: 700; border-top: 2px solid var(--azul); vertical-align: top; }
+.renglones tfoot .ayuda { font-weight: 400; }
+.kilos-renglon { white-space: nowrap; }
+.aviso-campo { font-size: 13px; color: #8a6100; margin-top: 4px; }
+.aviso-campo:empty { display: none; }
+table.insumos { width: auto; background: none; }
+table.insumos th, table.insumos td { border: 0; padding: 4px 16px 8px 0; vertical-align: bottom; background: none; position: static; }
+table.insumos th { font-size: 15px; font-weight: 600; min-width: 170px; }
+table.insumos td input { width: 110px; }
+table.insumos tr:hover td { background: none; }
+.saldo-insumo { font-size: 13px; color: var(--gris); max-width: 320px; }
+.saldo-insumo.negativo { color: var(--rojo); font-weight: 600; }
+.fotos-previa { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.fotos-previa img { height: 72px; border-radius: 6px; border: 1px solid var(--borde); }
+.fotos { display: flex; flex-wrap: wrap; gap: 12px; }
+.fotos figure { margin: 0; text-align: center; }
+.fotos img { width: 180px; height: 135px; object-fit: cover; border-radius: 6px; border: 1px solid var(--borde); display: block; }
+.fotos figcaption { margin-top: 6px; }
+section.libro { margin-bottom: 18px; }
+.libro-titulo { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; align-items: baseline;
+                background: #fff; border: 1px solid var(--borde); border-bottom: 0; border-radius: 8px 8px 0 0; padding: 10px 12px; }
+.libro-titulo + .tabla { border-radius: 0 0 8px 8px; }
+.cantidad-general { font-size: 14px; }
+tr.lote-titulo td { background: #f1f5f9; font-weight: 700; color: var(--azul); border-top: 2px solid var(--borde); }
+tr.saldo-anterior td { color: var(--gris); font-style: italic; }
+tr.lote-total td { font-weight: 700; border-bottom: 2px solid var(--borde); background: #fafcfe; }
+td.saldo { font-weight: 700; }
+@media print {
+  section.libro { break-inside: avoid-page; }
+  .fotos img { width: 140px; height: 105px; }
+}

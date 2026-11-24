@@ -28,18 +28,19 @@
 </div>
 <div class="tabla">
 <table>
-  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Stock</th><th>Envase</th><th>Equivale a</th><th>Dónde está</th></tr></thead>
+  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Cantidad</th><th>Envase</th><th class="num">Kilos</th><th>Equivale a</th><th>Dónde está</th></tr></thead>
   <tbody>
   {% for r in filas %}
     {% set v = r.vencimiento %}
     <tr class="{{ 'fila-vencida' if v and v < hoy_iso else ('bajo' if v and v <= limite_aviso) }}">
       <td>{{ r.empresa }}</td>
-      <td><a href="{{ url_for('stock.producto_ficha', producto_id=r.producto_id) }}">{{ r.codigo }}</a></td>
+      <td class="nowrap"><a href="{{ url_for('stock.producto_ficha', producto_id=r.producto_id) }}">{{ r.codigo }}</a></td>
       <td>{{ r.descripcion }}</td>
-      <td>{{ r.lote or '(sin lote)' }}</td>
+      <td class="nowrap">{{ r.lote or '(sin lote)' }}</td>
       <td>{{ v|fecha }}{% if v and v < hoy_iso %} <span class="etq EGRESO">vencido</span>{% endif %}</td>
       <td class="num"><strong>{{ r.stock|num }}</strong></td>
       <td>{{ r.unidad }}</td>
+      <td class="num">{{ r.stock|kilos(r.kilos_por_unidad) }}</td>
       <td class="pallets">{{ r.stock|pallets(r.unidades_por_pallet, r.unidad) }}</td>
       {% set d = donde.get(r.id) %}
       <td class="chico">
@@ -49,7 +50,7 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="9" class="vacio">No hay lotes con stock para estos filtros.</td></tr>
+    <tr><td colspan="10" class="vacio">No hay lotes con stock para estos filtros.</td></tr>
   {% endfor %}
   </tbody>
 </table>

@@ -8,6 +8,10 @@
   <div class="tarjeta"><div class="valor">{{ resumen.movs_hoy }}</div><div class="etiqueta">Remitos de hoy</div></div>
   <div class="tarjeta"><div class="valor">{{ resumen.bajo_minimo }}</div><div class="etiqueta">Bajo el mínimo (en la lista)</div></div>
   <a class="tarjeta enlace" href="{{ url_for('stock.lotes', vence='por_vencer', empresa_id=filtros.empresa_id) }}"><div class="valor {{ 'alerta' if resumen.por_vencer }}">{{ resumen.por_vencer }}</div><div class="etiqueta">Lotes vencidos o que vencen en {{ dias_aviso }} días</div></a>
+  <div class="tarjeta"><div class="valor">{{ resumen.kilos|num }} <small>kg</small></div><div class="etiqueta">Kilos en stock (en la lista)</div></div>
+  {% for nombre, saldo in resumen.insumos_cliente %}
+  <a class="tarjeta enlace" href="{{ url_for('stock.insumos_lista') }}"><div class="valor">{{ saldo|num }}</div><div class="etiqueta">{{ nombre }} de clientes en el depósito</div></a>
+  {% endfor %}
 </div>
 
 <div class="acciones">
@@ -38,7 +42,7 @@
 {% set detallar = filtros.ver_lotes or filtros.lote %}
 <div class="tabla">
 <table>
-  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th class="num">Stock</th><th>Envase</th><th>Equivale a</th><th class="num">Mínimo</th><th>Próx. vencimiento</th><th>Último mov.</th></tr></thead>
+  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th class="num">Cantidad</th><th>Envase</th><th class="num">Kg por unidad</th><th class="num">Kilos totales</th><th>Equivale a</th><th class="num">Mínimo</th><th>Próx. vencimiento</th><th>Último mov.</th></tr></thead>
   <tbody>
   {% for r in filas %}
     <tr class="{{ 'bajo' if r.stock_minimo > 0 and r.stock < r.stock_minimo }} {{ 'con-lotes' if detallar }}">
@@ -47,6 +51,8 @@
       <td>{{ r.descripcion }} {% if not r.activo %}<span class="etq inactivo">inactivo</span>{% endif %}</td>
       <td class="num"><strong>{{ r.stock|num }}</strong></td>
       <td>{{ r.unidad }}</td>
+      <td class="num">{{ r.kilos_por_unidad|num if r.kilos_por_unidad else '' }}</td>
+      <td class="num"><strong>{{ r.stock|kilos(r.kilos_por_unidad) }}</strong></td>
       <td class="pallets">{{ r.stock|pallets(r.unidades_por_pallet, r.unidad) }}</td>
       <td class="num">{{ r.stock_minimo|num if r.stock_minimo else '' }}</td>
       {% set v = vtos.get(r.id) %}
@@ -61,6 +67,8 @@
           <td colspan="2">↳ {{ ('Lote ' ~ l.lote) if l.lote else 'Sin lote' }}</td>
           <td class="num">{{ l.stock|num }}</td>
           <td>{{ l.unidad }}</td>
+          <td></td>
+          <td class="num">{{ l.stock|kilos(l.kilos_por_unidad) }}</td>
           <td class="pallets">{{ l.stock|pallets(l.unidades_por_pallet, l.unidad) }}</td>
           <td></td>
           <td class="{{ 'vencido' if lv and lv < hoy_iso else ('por-vencer' if lv and lv <= limite_aviso) }}">{{ lv|fecha }}{% if lv and lv < hoy_iso %} <span class="etq EGRESO">vencido</span>{% endif %}</td>
@@ -69,7 +77,7 @@
       {% endfor %}
     {% endif %}
   {% else %}
-    <tr><td colspan="9" class="vacio">
+    <tr><td colspan="11" class="vacio">
       {% if not empresas %}Todavía no hay empresas. <a href="{{ url_for('stock.empresa_form') }}">Cargá la primera empresa</a> para empezar.
       {% elif filtros.lote %}No hay stock en ningún lote que coincida con "{{ filtros.lote }}". Para ver lotes que ya salieron, buscalo en <a href="{{ url_for('stock.movimientos', producto=filtros.lote) }}">Movimientos</a>.
       {% else %}No hay productos para mostrar con estos filtros.{% endif %}
@@ -79,5 +87,6 @@
 </table>
 </div>
 <p class="ayuda">Las filas en amarillo están por debajo del stock mínimo configurado en el producto.
+  "Kilos totales" es la cantidad por los kilos de cada unidad (se calcula en los productos que tienen cargados los kilos por unidad).
   "Equivale a" dice cuántos pallets completos son, en los productos que tienen cargadas las unidades por pallet.</p>
 {% endblock %}

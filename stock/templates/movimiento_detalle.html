@@ -18,23 +18,53 @@
     <div><dt>Empresa de transporte</dt><dd>{{ m.transporte or '—' }}</dd></div>
     <div><dt>Patente camión</dt><dd>{{ m.patente_camion or '—' }}</dd></div>
     <div><dt>Patente semi</dt><dd>{{ m.patente_semi or '—' }}</dd></div>
+    <div><dt>N° de contenedor</dt><dd>{{ m.contenedor or '—' }}</dd></div>
+    <div><dt>Tipo de contenedor</dt><dd>{{ m.tipo_contenedor or '—' }}</dd></div>
   </dl>
   <h3 class="subtitulo">Observación general</h3>
   <p class="observacion">{{ m.observaciones or '—' }}</p>
 </div>
+{% if items %}
 <div class="tabla">
 <table>
-  <thead><tr><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Cantidad</th><th>Envase</th><th>Equivale a</th></tr></thead>
+  <thead><tr><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Cantidad</th><th>Envase</th>
+    <th class="num">Kg por unidad</th><th class="num">Kilos</th><th>Equivale a</th></tr></thead>
   <tbody>
   {% for i in items %}
     <tr><td><a href="{{ url_for('stock.producto_ficha', producto_id=i.producto_id) }}">{{ i.codigo }}</a></td>
         <td>{{ i.descripcion }}</td><td>{{ i.lote or "(sin lote)" }}</td><td>{{ i.vencimiento|fecha }}</td>
         <td class="num">{{ i.cantidad|num }}</td><td>{{ i.unidad }}</td>
+        <td class="num">{{ i.kilos_por_unidad|num if i.kilos_por_unidad else '' }}</td>
+        <td class="num">{{ (i.kilos|num ~ ' kg') if i.kilos is not none else '' }}</td>
         <td class="pallets">{{ i.cantidad|pallets(i.unidades_por_pallet, i.unidad) }}</td></tr>
+  {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr class="total"><td colspan="4">Totales</td>
+      <td class="num">{% for unidad, cantidad in totales.envases %}<div>{{ cantidad|num }}</div>{% endfor %}</td>
+      <td>{% for unidad, cantidad in totales.envases %}<div>{{ unidad }}</div>{% endfor %}</td>
+      <td></td>
+      <td class="num">{{ totales.kilos|num }} kg</td>
+      <td class="chico">{% if totales.sin_kilos %}Sin kilos cargados: {{ totales.sin_kilos|join(', ') }}{% endif %}</td></tr>
+  </tfoot>
+</table>
+</div>
+{% else %}
+<div class="tarjeta ayuda">Este remito no tiene productos: es solo de insumos.</div>
+{% endif %}
+{% if insumos %}
+<h2>Insumos adicionales</h2>
+<div class="tabla">
+<table>
+  <thead><tr><th>Insumo</th><th class="num">Cantidad</th><th>Unidad</th></tr></thead>
+  <tbody>
+  {% for r in insumos %}
+    <tr><td>{{ nombre_insumo(r) }}</td><td class="num">{{ r.cantidad|num }}</td><td>{{ r.unidad }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
+{% endif %}
 {% if armados %}
 <h2>Pallets armados con este remito ({{ armados|length }})</h2>
 <div class="tabla">
@@ -65,6 +95,29 @@
 </table>
 </div>
 {% endif %}
+<h2 id="fotos">Fotos{% if fotos %} ({{ fotos|length }}){% endif %}</h2>
+<div class="tarjeta">
+  {% if fotos %}
+  <div class="fotos">
+    {% for f in fotos %}
+    <figure>
+      <a href="{{ url_for('stock.foto', foto_id=f.id) }}" target="_blank"><img src="{{ url_for('stock.foto', foto_id=f.id) }}" alt="{{ f.nombre_original or 'Foto' }}" loading="lazy"></a>
+      <figcaption class="no-imprimir">
+        <form method="post" action="{{ url_for('stock.foto_borrar', foto_id=f.id) }}" onsubmit="return confirm('¿Quitar esta foto?')">
+          <button class="boton chico secundario">Quitar</button>
+        </form>
+      </figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="ayuda" style="margin-top:0">Este remito no tiene fotos.</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('stock.movimiento_fotos', movimiento_id=m.id) }}" enctype="multipart/form-data" class="en-linea no-imprimir" id="form-fotos" style="margin-top:12px">
+    <input type="file" name="fotos" id="fotos" accept="image/*" multiple required style="width:auto">
+    <button class="boton secundario">Agregar fotos</button>
+  </form>
+</div>
 <div class="acciones" style="margin-top:16px">
   {% if armados %}<a class="boton verde" href="{{ url_for('deposito.etiquetas_pallets', movimiento_id=m.id) }}" target="_blank">🖨 Imprimir etiquetas de los pallets</a>{% endif %}
   {% if m.tipo == 'INGRESO' and not armados and not m.anulado %}<a class="boton secundario" href="{{ url_for('deposito.pallets_armar', empresa_id=m.empresa_id) }}">Armar pallets con etiqueta</a>{% endif %}
@@ -82,4 +135,8 @@
   </form>
 </details>
 {% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='fotos.js') }}"></script>
+<script>prepararFotos(document.getElementById('fotos'), document.getElementById('form-fotos'));</script>
 {% endblock %}

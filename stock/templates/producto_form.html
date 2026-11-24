@@ -29,6 +29,9 @@
     <div class="campo"><label>Unidades por pallet (opcional)</label>
       <input name="unidades_por_pallet" value="{{ producto.unidades_por_pallet|num if producto.unidades_por_pallet else '' }}" inputmode="decimal" placeholder="Ej.: 40">
       <div class="ayuda">Cuántas bolsas, tambores, etc. entran en un pallet. Sirve para ver las cantidades en pallets.</div></div>
+    <div class="campo"><label>Kilos por unidad (opcional)</label>
+      <input name="kilos_por_unidad" value="{{ producto.kilos_por_unidad|num if producto.kilos_por_unidad else '' }}" inputmode="decimal" placeholder="Ej.: 25 o 200">
+      <div class="ayuda">Cuántos kilos pesa cada bolsa, tambor, etc. Con esto el programa calcula los kilos totales (kilos por unidad × cantidad).</div></div>
     <div class="campo"><label>Stock mínimo (opcional)</label><input name="stock_minimo" value="{{ producto.stock_minimo|num if producto.stock_minimo else '' }}" inputmode="decimal">
       <div class="ayuda">Si el stock baja de este número, se marca en amarillo.</div></div>
   </div>

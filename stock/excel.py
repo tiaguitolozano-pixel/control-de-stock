@@ -6,11 +6,23 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 
-def armar_excel(titulo, encabezados, filas, pie=None):
-    """pie: renglones de totales que van al final, en negrita y fuera del filtro."""
-    filas = [list(f) for f in filas]
+def armar_excel(titulo, encabezados, filas, pie=None, hojas_extra=()):
+    """pie: renglones de totales que van al final, en negrita y fuera del filtro.
+
+    hojas_extra: otras hojas del mismo archivo, como (título, encabezados, filas).
+    """
     wb = Workbook()
-    ws = wb.active
+    _hoja(wb.active, titulo, encabezados, filas, pie)
+    for extra in hojas_extra:
+        _hoja(wb.create_sheet(), *extra)
+    salida = BytesIO()
+    wb.save(salida)
+    salida.seek(0)
+    return salida
+
+
+def _hoja(ws, titulo, encabezados, filas, pie=None):
+    filas = [list(f) for f in filas]
     ws.title = titulo[:31]
     ws.append(encabezados)
     for celda in ws[1]:
@@ -30,7 +42,3 @@ def armar_excel(titulo, encabezados, filas, pie=None):
         valores = [f[i - 1] for f in filas if i - 1 < len(f) and f[i - 1] is not None]
         largo = max([len(str(enc))] + [len(str(v)) for v in valores])
         ws.column_dimensions[get_column_letter(i)].width = min(max(10, largo + 2), 60)
-    salida = BytesIO()
-    wb.save(salida)
-    salida.seek(0)
-    return salida

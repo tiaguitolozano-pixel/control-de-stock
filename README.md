@@ -6,18 +6,27 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
 ## Qué hace
 
 - **Empresas**: alta y edición de las empresas clientes (nombre, CUIT, contacto, teléfono).
-- **Productos**: cada empresa tiene sus productos (código, descripción, tipo de envase, unidades por pallet
-  y stock mínimo opcional). Dos empresas pueden usar el mismo código sin mezclarse.
+- **Productos**: cada empresa tiene sus productos (código, descripción, tipo de envase, unidades por pallet,
+  kilos por unidad y stock mínimo opcional). Dos empresas pueden usar el mismo código sin mezclarse.
+- **Kilos**: con los kilos por unidad de cada producto, el programa calcula los kilos totales (kilos por unidad ×
+  cantidad) en el stock, en cada lote, en cada renglón de los remitos y en los totales.
 - **Tipos de envase**: bolsas, tambores de chapa, tambores de plástico, cisternas, bidones, cajas… La lista se
   puede ampliar y corregir desde Productos → Tipos de envase.
 - **Equivalencia en pallets**: con las unidades por pallet de cada producto, las cantidades se ven también en
   pallets completos (columna "Equivale a": por ejemplo, 100 bolsas = 2 pallets + 20 bolsas). Al cargar un remito
-  se pueden escribir los pallets y la cantidad se calcula sola.
+  se pueden escribir los pallets y las unidades sueltas, y la cantidad se calcula sola; si las sueltas completan
+  pallets, se pasan solas a pallets.
 - **Lotes y vencimientos**: en cada ingreso se carga el lote y la fecha de vencimiento (opcionales).
   En los egresos se elige de qué lote sale, y se ofrece primero el que vence antes.
 - **Ingresos y egresos**: se cargan por remito (fecha, número de remito, datos del transporte: chofer, empresa de
-  transporte, patente del camión y del semi, y una observación general) y pueden tener varios productos.
-  Los choferes ya usados se autocompletan con el transporte y las patentes de su último viaje.
+  transporte, patente del camión y del semi, número y tipo de contenedor, y una observación general) y pueden tener
+  varios productos. Los choferes ya usados se autocompletan con el transporte y las patentes de su último viaje.
+  Si el contenedor tiene el formato de siempre (4 letras y 7 números), se revisa el dígito de control.
+  - **Insumos adicionales** de cada remito: pallets (propios o del cliente), film stretch y los que se agreguen.
+    Los pallets del cliente llevan saldo por empresa (no pueden salir más de los que hay); los propios y el film
+    solo quedan anotados. Puede haber remitos solo de insumos, por ejemplo una devolución de pallets.
+  - **Fotos** del remito (la mercadería al llegar, el camión cargado, el precinto…). Se achican solas antes de
+    guardarse y se pueden agregar más después, desde el remito.
   - No deja sacar más de lo que hay (ni del producto ni del lote).
   - Avisa si se carga dos veces el mismo remito de ingreso.
   - Los remitos mal cargados no se borran: se **anulan** con un motivo y quedan en el historial.
@@ -26,9 +35,12 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
 - **Stock por lote**, con los vencidos en rojo y los que vencen en los próximos 60 días en amarillo.
 - **Importar desde Excel** el conteo inicial (por ejemplo, lo que sale del programa Cristal):
   crea solas las empresas y productos que falten. Hay una planilla de ejemplo para bajar.
-- **Ficha de cada producto** con todo su historial y el saldo después de cada movimiento.
-- **Historial de movimientos** tipo debe y haber (ingresos y egresos en columnas separadas) con totales por tipo
-  de envase, y filtros por empresa, tipo, fechas, remito, producto/lote y transporte (chofer o patente).
+- **Ficha de cada producto** con su stock en cantidad y kilos, y todo su historial separado por lote.
+- **Historial de movimientos** tipo debe y haber (ingresos y egresos en columnas separadas), que se lee de arriba
+  hacia abajo (primero lo más viejo) y separado por producto y lote: cada producto muestra su cantidad general y,
+  debajo, los movimientos de cada lote con el saldo del lote después de cada remito (en cantidad y en kilos).
+  Arriba, los totales por tipo de envase y en kilos. Filtros por empresa, tipo, fechas, remito, producto/lote y
+  transporte (chofer, patente o contenedor). Abajo, los insumos adicionales de esos remitos.
 - **Exportar a Excel** el stock y los movimientos (respeta los filtros), e imprimir.
 - **Pallets con etiqueta QR**: al cargar un ingreso se arman solos los pallets (completos y uno con lo que sobra)
   y se imprimen sus etiquetas en hojas A4. Cada pallet sabe qué tiene (producto, lote, vencimiento y cantidad),
@@ -70,10 +82,11 @@ Al abrir la versión nueva, el programa actualiza solo la base de datos. Antes d
 
 ## Dónde quedan los datos y cómo hacer respaldo
 
-Todo se guarda en un solo archivo: **`datos/stock.db`** dentro de la carpeta del programa.
+Todo se guarda en la carpeta **`datos`** dentro de la carpeta del programa: la base de datos es el archivo
+`datos/stock.db` y las fotos de los remitos están en `datos/fotos`.
 Conviene que la carpeta del programa **no** esté dentro de OneDrive o Google Drive, porque la sincronización
-mientras el programa está abierto puede dañar ese archivo. Para hacer un respaldo, copiar ese archivo (por ejemplo a un pendrive o a Google Drive) con el programa cerrado.
-Para restaurar, volver a ponerlo en su lugar.
+mientras el programa está abierto puede dañar la base. Para hacer un respaldo, copiar **la carpeta `datos` completa**
+(por ejemplo a un pendrive o a Google Drive) con el programa cerrado. Para restaurar, volver a ponerla en su lugar.
 
 Además, cada vez que se abre el programa se guarda una copia del día en `datos/respaldos/stock-AAAA-MM-DD.db`
 (se guardan las últimas 30).
@@ -81,7 +94,12 @@ Además, cada vez que se abre el programa se guarda una copia del día en `datos
 ## Primeros pasos
 
 **Opción rápida:** en **Importar Excel**, bajar la planilla de ejemplo, completarla con el conteo
-(una fila por producto y lote: Empresa, Código, Descripción, Unidad, Lote, Vencimiento, Cantidad) y subirla.
+(una fila por producto y lote: Empresa, Código, Descripción, Envase, Por pallet, Kilos por unidad, Lote, Vencimiento,
+Cantidad) y subirla. Las columnas Envase, Por pallet, Kilos por unidad, Lote y Vencimiento son opcionales.
+
+**Pallets de los clientes:** si una empresa ya tiene pallets suyos en el depósito, cargar un ingreso de esa empresa
+solo con esos pallets en **Insumos adicionales → Pallets del cliente** (remito "Saldo inicial"). Los saldos de cada
+empresa se ven en **Stock → Pallets de clientes en el depósito**.
 
 **Opción a mano:**
 1. **Empresas → Nueva empresa**: cargar las empresas clientes.
@@ -137,8 +155,11 @@ El teclado de la pantalla queda escondido para que no tape; con el botón ⌨ se
 - Las dependencias (puro Python) están copiadas en `vendor/` para que funcione sin internet;
   `iniciar.py` las agrega al `sys.path`. Para desarrollo se puede usar un venv con `requirements-dev.txt`.
 - Código en `stock/`: `rutas.py` las pantallas de stock y remitos, `deposito.py` las de pallets, depósito y terminal,
-  `pallets.py` la lógica de pallets y ubicaciones, `qr.py` los QR (en SVG, con la librería `qrcode`), `db.py` la base
-  y sus migraciones, `templates/` el HTML.
+  `pallets.py` la lógica de pallets y ubicaciones, `historial.py` el historial por lote con saldos, `insumos.py` los
+  insumos adicionales y el saldo de pallets de los clientes, `fotos.py` las fotos de los remitos (archivos en
+  `datos/fotos`, carpeta configurable con `FOTOS`), `qr.py` los QR (en SVG, con la librería `qrcode`), `db.py` la base
+  y sus migraciones, `templates/` el HTML, `static/fotos.js` el achicado de las fotos en el navegador.
+- Los kilos no se guardan en los remitos: siempre se calculan con los kilos por unidad actuales del producto.
 - Lo que tiene cada pallet sale de los movimientos de la tabla `pallet_movs` (nunca se pisa un saldo), así que
   anular un egreso devuelve sola la mercadería a sus pallets.
 - Pruebas: `pip install -r requirements-dev.txt` y `pytest`.

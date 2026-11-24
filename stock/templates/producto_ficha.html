@@ -3,8 +3,10 @@
 {% block contenido %}
 <h1>{{ p.codigo }} · {{ p.descripcion }}</h1>
 <div class="resumen">
-  <div class="tarjeta"><div class="valor">{{ p.stock|num }}</div><div class="etiqueta">Stock actual ({{ p.unidad }})</div>
+  <div class="tarjeta"><div class="valor">{{ p.stock|num }}</div><div class="etiqueta">Cantidad en stock ({{ p.unidad }})</div>
     {% if p.unidades_por_pallet %}<div class="etiqueta">{{ p.stock|pallets(p.unidades_por_pallet, p.unidad) or '0 pallets' }}</div>{% endif %}</div>
+  <div class="tarjeta"><div class="valor">{{ p.stock|kilos(p.kilos_por_unidad) or '—' }}</div><div class="etiqueta">Kilos totales</div></div>
+  <div class="tarjeta"><div class="valor">{{ p.kilos_por_unidad|num if p.kilos_por_unidad else '—' }}</div><div class="etiqueta">Kg por unidad</div></div>
   <div class="tarjeta"><div class="valor" style="font-size:20px">{{ p.empresa }}</div><div class="etiqueta">Empresa</div></div>
   <div class="tarjeta"><div class="valor">{{ p.unidades_por_pallet|num if p.unidades_por_pallet else '—' }}</div><div class="etiqueta">{{ p.unidad }} por pallet</div></div>
   <div class="tarjeta"><div class="valor">{{ p.stock_minimo|num if p.stock_minimo else '—' }}</div><div class="etiqueta">Stock mínimo</div></div>
@@ -12,49 +14,30 @@
 <div class="acciones">
   <a class="boton secundario" href="{{ url_for('stock.producto_form', producto_id=p.id) }}">Editar producto</a>
   <a class="boton secundario" href="{{ url_for('stock.movimientos', empresa_id=p.empresa_id, producto=p.codigo) }}">Ver en movimientos</a>
+  <button class="boton secundario" onclick="window.print()">🖨 Imprimir</button>
 </div>
 <h2>Stock por lote</h2>
 <div class="tabla">
 <table>
-  <thead><tr><th>Lote</th><th>Vencimiento</th><th class="num">Stock</th><th>Equivale a</th></tr></thead>
+  <thead><tr><th>Lote</th><th>Vencimiento</th><th class="num">Cantidad</th><th class="num">Kilos</th><th>Equivale a</th></tr></thead>
   <tbody>
   {% for l in lotes %}
     {% set v = l.vencimiento %}
     <tr class="{{ 'fila-vencida' if v and v < hoy_iso else ('bajo' if v and v <= limite_aviso) }}">
       <td>{{ l.lote or '(sin lote)' }}</td><td>{{ v|fecha }}</td><td class="num"><strong>{{ l.stock|num }}</strong></td>
+      <td class="num">{{ l.stock|kilos(p.kilos_por_unidad) }}</td>
       <td class="pallets">{{ l.stock|pallets(p.unidades_por_pallet, p.unidad) }}</td></tr>
   {% else %}
-    <tr><td colspan="4" class="vacio">Sin stock.</td></tr>
+    <tr><td colspan="5" class="vacio">Sin stock.</td></tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
-<h2>Historial (lo más nuevo arriba)</h2>
-<div class="tabla">
-<table>
-  <thead><tr><th>Fecha</th><th>Remito</th><th>Lote</th><th>Vencimiento</th><th class="num debe">Ingresos (debe)</th><th class="num haber">Egresos (haber)</th><th class="num">Saldo</th><th>Observaciones</th></tr></thead>
-  <tbody>
-  {% for l in lineas %}
-    <tr>
-      <td>{{ l.fecha|fecha }}</td>
-      <td><a href="{{ url_for('stock.movimiento_detalle', movimiento_id=l.id) }}">{{ l.remito }}</a></td>
-      <td>{{ l.lote }}</td><td>{{ l.vencimiento|fecha }}</td>
-      <td class="num debe">{{ l.cantidad|num if l.tipo == 'INGRESO' else '' }}</td>
-      <td class="num haber">{{ l.cantidad|num if l.tipo == 'EGRESO' else '' }}</td>
-      <td class="num"><strong>{{ l.saldo|num }}</strong></td>
-      <td>{{ l.observaciones or '' }}</td>
-    </tr>
-  {% else %}
-    <tr><td colspan="8" class="vacio">Este producto todavía no tiene movimientos.</td></tr>
-  {% endfor %}
-  </tbody>
-  {% if lineas %}
-  {% set ing = lineas|selectattr('tipo', 'equalto', 'INGRESO')|sum(attribute='cantidad') %}
-  {% set egr = lineas|selectattr('tipo', 'equalto', 'EGRESO')|sum(attribute='cantidad') %}
-  <tfoot>
-    <tr class="total"><td colspan="4">Totales</td><td class="num debe">{{ ing|num }}</td><td class="num haber">{{ egr|num }}</td><td class="num">{{ (ing - egr)|num }}</td><td></td></tr>
-  </tfoot>
-  {% endif %}
-</table>
-</div>
+{% from "_libro.html" import libro_por_lote with context %}
+<h2>Historial por lote <span class="ayuda">(de arriba hacia abajo: primero lo más viejo)</span></h2>
+{% if libro %}
+  {{ libro_por_lote(libro, con_titulo=False) }}
+{% else %}
+  <div class="tarjeta vacio">Este producto todavía no tiene movimientos.</div>
+{% endif %}
 {% endblock %}

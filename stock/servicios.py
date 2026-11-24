@@ -70,6 +70,26 @@ def normalizar_patente(texto):
     return "".join(c for c in str(texto or "").upper() if c.isalnum())
 
 
+_CONTENEDOR_ISO = re.compile(r"^[A-Z]{4}\d{6,7}$")
+
+
+def normalizar_contenedor(texto):
+    """'mscu 123456-7' -> 'MSCU1234567'. Lo que no tiene forma de contenedor queda como se escribió."""
+    compacto = normalizar_patente(texto)
+    if _CONTENEDOR_ISO.match(compacto):
+        return compacto
+    return " ".join(str(texto or "").split())
+
+
+def normalizar_transporte(datos):
+    """Deja las patentes y el contenedor escritos siempre igual (para buscarlos después)."""
+    datos = dict(datos)
+    for campo in ("patente_camion", "patente_semi"):
+        datos[campo] = normalizar_patente(datos.get(campo))
+    datos["contenedor"] = normalizar_contenedor(datos.get("contenedor"))
+    return datos
+
+
 def _normalizar(texto):
     texto = unicodedata.normalize("NFKD", str(texto or "")).encode("ascii", "ignore").decode()
     return " ".join(texto.lower().replace("°", "").replace("º", "").split())
@@ -110,29 +130,33 @@ def obtener_o_crear_lote(producto_id, lote, vencimiento):
     return cur.lastrowid
 
 
-CAMPOS_TRANSPORTE = ("chofer", "transporte", "patente_camion", "patente_semi")
+CAMPOS_TRANSPORTE = ("chofer", "transporte", "patente_camion", "patente_semi", "contenedor", "tipo_contenedor")
 
 
-def registrar_movimiento(tipo, empresa_id, fecha, remito, observaciones, items, transporte=None):
+def registrar_movimiento(tipo, empresa_id, fecha, remito, observaciones, items, transporte=None, insumos=None):
     """items: lista de (producto_id, lote_id, cantidad).
 
-    transporte: dict opcional con chofer, transporte (empresa), patente_camion y patente_semi.
+    transporte: dict opcional con los CAMPOS_TRANSPORTE (chofer, empresa de transporte, patentes y contenedor).
+    insumos: lista opcional de (insumo_id, propietario o None, cantidad).
     No hace commit.
     """
     db = get_db()
     t = {c: ((transporte or {}).get(c) or "").strip() or None for c in CAMPOS_TRANSPORTE}
     cur = db.execute(
-        """INSERT INTO movimientos (tipo, fecha, remito, empresa_id, observaciones,
-                                    chofer, transporte, patente_camion, patente_semi)
-           VALUES (?,?,?,?,?,?,?,?,?)""",
-        (tipo, fecha, remito, empresa_id, observaciones,
-         t["chofer"], t["transporte"], t["patente_camion"], t["patente_semi"]),
+        f"""INSERT INTO movimientos (tipo, fecha, remito, empresa_id, observaciones, {", ".join(CAMPOS_TRANSPORTE)})
+            VALUES (?,?,?,?,?{",?" * len(CAMPOS_TRANSPORTE)})""",
+        (tipo, fecha, remito, empresa_id, observaciones, *(t[c] for c in CAMPOS_TRANSPORTE)),
     )
+    mid = cur.lastrowid
     db.executemany(
         "INSERT INTO movimiento_items (movimiento_id, producto_id, lote_id, cantidad) VALUES (?,?,?,?)",
-        [(cur.lastrowid, pid, lid, cant) for pid, lid, cant in items],
+        [(mid, pid, lid, cant) for pid, lid, cant in items],
     )
-    return cur.lastrowid
+    db.executemany(
+        "INSERT INTO movimiento_insumos (movimiento_id, insumo_id, propietario, cantidad) VALUES (?,?,?,?)",
+        [(mid, iid, propietario, cant) for iid, propietario, cant in (insumos or [])],
+    )
+    return mid
 
 
 def _dmy(iso):
@@ -151,13 +175,16 @@ COLUMNAS = {
     "unidad": ["unidad", "unidad de medida", "um", "u.m.", "envase", "tipo de envase", "presentacion"],
     "por_pallet": ["por pallet", "unidades por pallet", "x pallet", "cant x pallet", "cantidad por pallet",
                    "por palet", "unidades por palet", "x palet", "cantidad por palet"],
+    # Solo nombres que dicen "por unidad": una columna "Kilos" a secas puede ser el total del renglón.
+    "kilos": ["kilos por unidad", "kg por unidad", "kilos x unidad", "kg x unidad", "kilos/unidad", "kg/unidad",
+              "kg/u", "kg x u", "peso unitario", "peso por unidad", "kilos por envase", "kg por envase"],
     "lote": ["lote", "nro lote", "n lote", "numero de lote", "partida"],
     "vencimiento": ["vencimiento", "vto", "vto.", "fecha vencimiento", "fecha de vencimiento", "vence"],
     "cantidad": ["cantidad", "cant", "cant.", "stock", "existencia", "conteo"],
 }
 OBLIGATORIAS = ("empresa", "codigo", "cantidad")
-ENCABEZADOS_PLANTILLA = ["Empresa", "Código", "Descripción", "Envase", "Por pallet", "Lote", "Vencimiento",
-                         "Cantidad"]
+ENCABEZADOS_PLANTILLA = ["Empresa", "Código", "Descripción", "Envase", "Por pallet", "Kilos por unidad", "Lote",
+                         "Vencimiento", "Cantidad"]
 
 
 def leer_planilla(archivo):
@@ -219,6 +246,7 @@ def leer_planilla(archivo):
             "vencimiento": parse_fecha(celda("vencimiento")),
             "cantidad": parse_numero(celda("cantidad")),
             "por_pallet": parse_numero(celda("por_pallet")),
+            "kilos": parse_numero(celda("kilos")),
         }
         problemas = []
         if not fila["empresa"]:
@@ -238,6 +266,10 @@ def leer_planilla(archivo):
             problemas.append(f"'por pallet' tiene que ser un número, no '{celda('por_pallet')}'")
         elif fila["por_pallet"] is not None and fila["por_pallet"] <= 0:
             fila["por_pallet"] = None
+        if fila["kilos"] is None and celda("kilos") not in (None, ""):
+            problemas.append(f"'kilos por unidad' tiene que ser un número, no '{celda('kilos')}'")
+        elif fila["kilos"] is not None and fila["kilos"] <= 0:
+            fila["kilos"] = None
         if problemas:
             errores.append(f"Fila {nro}: " + ", ".join(problemas) + ".")
         else:
@@ -260,7 +292,7 @@ def importar_conteo(filas, fecha, remito):
     productos_existentes = {}
     for r in db.execute("SELECT p.*, e.nombre AS empresa FROM productos p JOIN empresas e ON e.id = p.empresa_id"):
         productos_existentes[(_normalizar(r["empresa"]), r["codigo"].lower())] = r
-    descripciones, unidades, por_pallet = {}, {}, {}
+    descripciones, unidades, por_pallet, kilos = {}, {}, {}, {}
     for f in filas:
         clave = (_normalizar(f["empresa"]), f["codigo"].lower())
         if f["descripcion"]:
@@ -269,6 +301,8 @@ def importar_conteo(filas, fecha, remito):
             unidades.setdefault(clave, f["unidad"])
         if f["por_pallet"]:
             por_pallet.setdefault(clave, f["por_pallet"])
+        if f.get("kilos"):
+            kilos.setdefault(clave, f["kilos"])
     for f in filas:
         clave = (_normalizar(f["empresa"]), f["codigo"].lower())
         if clave not in productos_existentes and clave not in descripciones:
@@ -303,20 +337,25 @@ def importar_conteo(filas, fecha, remito):
             if clave not in productos_existentes:
                 unidad = unidades.get(clave) or "Unidades"
                 cur = db.execute(
-                    """INSERT INTO productos (empresa_id, codigo, descripcion, unidad, unidades_por_pallet)
-                       VALUES (?,?,?,?,?)""",
+                    """INSERT INTO productos (empresa_id, codigo, descripcion, unidad, unidades_por_pallet,
+                                              kilos_por_unidad)
+                       VALUES (?,?,?,?,?,?)""",
                     (empresas[clave[0]]["id"], f["codigo"], descripciones[clave], unidad,
-                     por_pallet.get(clave)),
+                     por_pallet.get(clave), kilos.get(clave)),
                 )
                 asegurar_envase(unidad)
-                productos_existentes[clave] = {"id": cur.lastrowid, "unidades_por_pallet": por_pallet.get(clave)}
+                productos_existentes[clave] = {"id": cur.lastrowid, "unidades_por_pallet": por_pallet.get(clave),
+                                               "kilos_por_unidad": kilos.get(clave)}
                 resumen["productos_nuevos"] += 1
-            elif por_pallet.get(clave) and not productos_existentes[clave]["unidades_por_pallet"]:
-                # Producto que ya existía sin dato de pallet: se completa con el de la planilla.
-                db.execute("UPDATE productos SET unidades_por_pallet = ? WHERE id = ?",
-                           (por_pallet[clave], productos_existentes[clave]["id"]))
-                productos_existentes[clave] = {**dict(productos_existentes[clave]),
-                                               "unidades_por_pallet": por_pallet[clave]}
+            else:
+                # Producto que ya existía sin dato de pallet o de kilos: se completa con el de la planilla.
+                existente = dict(productos_existentes[clave])
+                for columna, valores in (("unidades_por_pallet", por_pallet), ("kilos_por_unidad", kilos)):
+                    if valores.get(clave) and not existente.get(columna):
+                        db.execute(f"UPDATE productos SET {columna} = ? WHERE id = ?",
+                                   (valores[clave], existente["id"]))
+                        existente[columna] = valores[clave]
+                productos_existentes[clave] = existente
         # Lotes y cantidades por empresa
         por_empresa = defaultdict(lambda: defaultdict(float))
         for f in filas:

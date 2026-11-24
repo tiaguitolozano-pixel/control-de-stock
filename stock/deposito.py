@@ -4,10 +4,11 @@ from datetime import date
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 
+from . import insumos as ins
 from . import pallets as pl
 from .db import get_db, stock_de_lotes, stock_por_lote_id
 from .formato import cantidad_pallets
-from .servicios import CAMPOS_TRANSPORTE, normalizar_patente, parse_numero, registrar_movimiento
+from .servicios import CAMPOS_TRANSPORTE, normalizar_transporte, parse_numero, registrar_movimiento
 
 bp = Blueprint("deposito", __name__)
 
@@ -428,7 +429,13 @@ def terminal_despachar():
             return redirect(url_for("deposito.terminal_despacho_listo", movimiento_id=resultado))
 
     lineas = _completar_lineas(lineas)
-    return render_template("terminal_despachar.html", lineas=lineas, form=form, previos=_transportes_previos())
+    empresa_id = next((l["pallet"]["empresa_id"] for l in lineas if l.get("pallet")), None)
+    return render_template(
+        "terminal_despachar.html", lineas=lineas, form=form, previos=_transportes_previos(),
+        insumos=ins.lista(), campos_insumo=ins.campos,
+        textos_insumos={k: v for k, v in request.form.items() if k.startswith("ins_")},
+        saldos_cliente={iid: saldo for (_, iid), saldo in ins.saldos_cliente(empresa_id).items()} if empresa_id else {},
+    )
 
 
 def _confirmar_despacho(form, lineas):
@@ -466,6 +473,10 @@ def _confirmar_despacho(form, lineas):
         errores.append("Hay pallets de más de una empresa.")
     if lineas and not items and not errores:
         errores.append("Todas las cantidades están en cero.")
+    insumos, errores_insumos, _ = ins.leer_formulario(request.form)
+    errores += errores_insumos
+    if len(empresas) == 1 and insumos:
+        errores += ins.chequear_egreso(next(iter(empresas)), insumos)
     stock = stock_por_lote_id({lid for _, lid in items})
     for (pid, lid), cant in items.items():
         if cant > stock.get(lid, 0) + pl.EPS:
@@ -474,12 +485,10 @@ def _confirmar_despacho(form, lineas):
         for e in dict.fromkeys(errores):
             flash(e, "error")
         return None
-    transporte = {c: form[c] for c in CAMPOS_TRANSPORTE}
-    for c in ("patente_camion", "patente_semi"):
-        transporte[c] = normalizar_patente(transporte[c])
+    transporte = normalizar_transporte({c: form[c] for c in CAMPOS_TRANSPORTE})
     mid = registrar_movimiento(
         "EGRESO", empresas.pop(), form["fecha"], form["remito"], form["observaciones"] or None,
-        [(pid, lid, round(cant, 6)) for (pid, lid), cant in items.items()], transporte,
+        [(pid, lid, round(cant, 6)) for (pid, lid), cant in items.items()], transporte, insumos,
     )
     pl.registrar_salida_de_pallets(mid, plan)
     db.commit()

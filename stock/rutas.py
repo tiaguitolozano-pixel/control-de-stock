@@ -7,12 +7,14 @@ from datetime import date, datetime, timedelta
 from flask import (
     Blueprint,
     abort,
+    current_app,
     flash,
     jsonify,
     redirect,
     render_template,
     request,
     send_file,
+    send_from_directory,
     url_for,
 )
 
@@ -25,9 +27,12 @@ from .db import (
     stock_de_productos,
     stock_por_lote_id,
 )
+from . import fotos as ft
+from . import insumos as ins
 from . import pallets as pl
 from .excel import armar_excel
 from .formato import cantidad_pallets
+from .historial import libro_por_lote
 from .servicios import (
     CAMPOS_TRANSPORTE,
     ENCABEZADOS_PLANTILLA,
@@ -35,6 +40,7 @@ from .servicios import (
     importar_conteo,
     leer_planilla,
     normalizar_patente,
+    normalizar_transporte,
     obtener_o_crear_lote,
     parse_fecha,
     parse_numero,
@@ -97,8 +103,15 @@ def _int_o_none(valor):
         return None
 
 
-def _excel(nombre, titulo, encabezados, filas, pie=None):
-    archivo = armar_excel(titulo, encabezados, filas, pie)
+def _kilos(cantidad, kilos_por_unidad):
+    """Kilos totales (cantidad x kilos por unidad), o None si el producto no tiene cargados los kilos."""
+    if not kilos_por_unidad or cantidad is None:
+        return None
+    return round(cantidad * kilos_por_unidad, 3)
+
+
+def _excel(nombre, titulo, encabezados, filas, pie=None, hojas_extra=()):
+    archivo = armar_excel(titulo, encabezados, filas, pie, hojas_extra)
     return send_file(
         archivo,
         as_attachment=True,
@@ -148,7 +161,14 @@ def inicio():
             1 for r in filas if r["activo"] and r["stock_minimo"] > 0 and r["stock"] < r["stock_minimo"]
         ),
         "por_vencer": len(stock_de_lotes(empresa_id=f["empresa_id"], vence_hasta=_limite_aviso())),
+        "kilos": sum(_kilos(r["stock"], r["kilos_por_unidad"]) or 0 for r in filas if r["stock"] > 0),
     }
+    # Pallets (u otros insumos) de los clientes que hay en el depósito, uno por insumo.
+    saldos = defaultdict(float)
+    for (_, insumo_id), saldo in ins.saldos_cliente(f["empresa_id"]).items():
+        saldos[insumo_id] += saldo
+    nombres = {i["id"]: i["nombre"] for i in ins.lista(solo_activos=False)}
+    resumen["insumos_cliente"] = [(nombres[i], round(s, 6)) for i, s in saldos.items()]
     return render_template(
         "inicio.html", filas=filas, lotes=lotes, filtros=f, empresas=_empresas(), resumen=resumen,
         vtos=proximo_vencimiento_por_producto(f["empresa_id"]),
@@ -163,10 +183,12 @@ def stock_excel():
         return _excel(
             "stock_por_lote",
             "Stock por lote",
-            ["Empresa", "Código", "Descripción", "Lote", "Vencimiento", "Stock", "Envase", "Equivale a (pallets)"],
+            ["Empresa", "Código", "Descripción", "Lote", "Vencimiento", "Cantidad", "Envase", "Kg por unidad",
+             "Kilos totales", "Equivale a (pallets)"],
             [
                 (l["empresa"], l["codigo"], l["descripcion"], l["lote"] or "(sin lote)", l["vencimiento"] or "",
-                 l["stock"], l["unidad"], cantidad_pallets(l["stock"], l["unidades_por_pallet"]))
+                 l["stock"], l["unidad"], l["kilos_por_unidad"], _kilos(l["stock"], l["kilos_por_unidad"]),
+                 cantidad_pallets(l["stock"], l["unidades_por_pallet"]))
                 for r in filas for l in lotes.get(r["id"], [])
             ],
         )
@@ -174,12 +196,12 @@ def stock_excel():
     return _excel(
         "stock",
         "Stock",
-        ["Empresa", "Código", "Descripción", "Stock", "Envase", "Equivale a (pallets)", "Unidades por pallet",
-         "Stock mínimo", "Próximo vencimiento", "Último movimiento"],
+        ["Empresa", "Código", "Descripción", "Cantidad", "Envase", "Kg por unidad", "Kilos totales",
+         "Equivale a (pallets)", "Unidades por pallet", "Stock mínimo", "Próximo vencimiento", "Último movimiento"],
         [
-            (r["empresa"], r["codigo"], r["descripcion"], r["stock"], r["unidad"],
-             cantidad_pallets(r["stock"], r["unidades_por_pallet"]), r["unidades_por_pallet"],
-             r["stock_minimo"], vtos.get(r["id"], ""), r["ultimo_mov"] or "")
+            (r["empresa"], r["codigo"], r["descripcion"], r["stock"], r["unidad"], r["kilos_por_unidad"],
+             _kilos(r["stock"], r["kilos_por_unidad"]), cantidad_pallets(r["stock"], r["unidades_por_pallet"]),
+             r["unidades_por_pallet"], r["stock_minimo"], vtos.get(r["id"], ""), r["ultimo_mov"] or "")
             for r in filas
         ],
     )
@@ -221,11 +243,11 @@ def lotes_excel():
     return _excel(
         "stock_por_lote",
         "Stock por lote",
-        ["Empresa", "Código", "Descripción", "Lote", "Vencimiento", "Stock", "Envase", "Equivale a (pallets)", "Ubicaciones",
-         "Sin etiqueta"],
+        ["Empresa", "Código", "Descripción", "Lote", "Vencimiento", "Cantidad", "Envase", "Kilos totales",
+         "Equivale a (pallets)", "Ubicaciones", "Sin etiqueta"],
         [
             (r["empresa"], r["codigo"], r["descripcion"], r["lote"] or "(sin lote)",
-             r["vencimiento"] or "", r["stock"], r["unidad"],
+             r["vencimiento"] or "", r["stock"], r["unidad"], _kilos(r["stock"], r["kilos_por_unidad"]),
              cantidad_pallets(r["stock"], r["unidades_por_pallet"]),
              ", ".join(donde[r["id"]]["ubicaciones"]), donde[r["id"]]["sin_etiqueta"])
             for r in filas
@@ -311,6 +333,7 @@ def producto_form(producto_id=None):
         if unidad == "__otro__":
             unidad = _texto("unidad_otra")
         por_pallet_texto = _texto("unidades_por_pallet")
+        kilos_texto = _texto("kilos_por_unidad")
         datos = {
             "empresa_id": producto["empresa_id"] if producto else _int_o_none(request.form.get("empresa_id")),
             "codigo": _texto("codigo"),
@@ -319,12 +342,15 @@ def producto_form(producto_id=None):
             "stock_minimo": _numero(request.form.get("stock_minimo")) or 0,
             "activo": 1 if (request.form.get("activo") or not producto) else 0,
             "unidades_por_pallet": _numero(por_pallet_texto),
+            "kilos_por_unidad": _numero(kilos_texto),
         }
         errores = []
         if not datos["unidad"]:
             errores.append("Elegí el tipo de envase.")
         if por_pallet_texto and (datos["unidades_por_pallet"] is None or datos["unidades_por_pallet"] <= 0):
             errores.append("Las unidades por pallet tienen que ser un número mayor a cero (o dejalo vacío).")
+        if kilos_texto and (datos["kilos_por_unidad"] is None or datos["kilos_por_unidad"] <= 0):
+            errores.append("Los kilos por unidad tienen que ser un número mayor a cero (o dejalo vacío).")
         if not datos["empresa_id"]:
             errores.append("Elegí la empresa.")
         if not datos["codigo"]:
@@ -338,16 +364,16 @@ def producto_form(producto_id=None):
                 if producto:
                     db.execute(
                         """UPDATE productos SET codigo=?, descripcion=?, unidad=?, stock_minimo=?, activo=?,
-                                  unidades_por_pallet=?
+                                  unidades_por_pallet=?, kilos_por_unidad=?
                            WHERE id=?""",
                         (datos["codigo"], datos["descripcion"], datos["unidad"], datos["stock_minimo"],
-                         datos["activo"], datos["unidades_por_pallet"], producto_id),
+                         datos["activo"], datos["unidades_por_pallet"], datos["kilos_por_unidad"], producto_id),
                     )
                 else:
                     db.execute(
                         """INSERT INTO productos (empresa_id, codigo, descripcion, unidad, stock_minimo, activo,
-                                                 unidades_por_pallet)
-                           VALUES (?,?,?,?,?,?,?)""",
+                                                 unidades_por_pallet, kilos_por_unidad)
+                           VALUES (?,?,?,?,?,?,?,?)""",
                         tuple(datos.values()),
                     )
                 asegurar_envase(datos["unidad"])
@@ -434,22 +460,12 @@ def producto_ficha(producto_id):
     filas = stock_de_productos(producto_ids=[producto_id])
     if not filas:
         abort(404)
-    movs = get_db().execute(
-        """SELECT m.id, m.tipo, m.fecha, m.remito, m.observaciones, i.cantidad,
-                  l.lote, l.vencimiento
-           FROM movimiento_items i JOIN movimientos m ON m.id = i.movimiento_id
-           JOIN lotes l ON l.id = i.lote_id
-           WHERE i.producto_id = ? AND m.anulado = 0
-           ORDER BY m.fecha, m.id""",
-        (producto_id,),
+    renglones = get_db().execute(
+        SQL_RENGLONES + " WHERE i.producto_id = ? AND m.anulado = 0", (producto_id,)
     ).fetchall()
-    saldo, lineas = 0, []
-    for m in movs:
-        saldo += m["cantidad"] if m["tipo"] == "INGRESO" else -m["cantidad"]
-        lineas.append({**dict(m), "saldo": saldo})
-    lineas.reverse()  # lo más nuevo arriba
     return render_template(
-        "producto_ficha.html", p=filas[0], lineas=lineas, lotes=stock_de_lotes(producto_id=producto_id)
+        "producto_ficha.html", p=filas[0], libro=libro_por_lote(renglones),
+        lotes=stock_de_lotes(producto_id=producto_id),
     )
 
 
@@ -467,7 +483,7 @@ def api_productos():
     return jsonify([
         {"id": r["id"], "codigo": r["codigo"], "descripcion": r["descripcion"],
          "unidad": r["unidad"], "stock": r["stock"], "por_pallet": r["unidades_por_pallet"],
-         "lotes": lotes.get(r["id"], [])}
+         "kilos": r["kilos_por_unidad"], "lotes": lotes.get(r["id"], [])}
         for r in filas if r["activo"]
     ])
 
@@ -495,8 +511,15 @@ SQL_MOVS_DESDE = """
              JOIN productos p ON p.id = i.producto_id
              JOIN lotes l ON l.id = i.lote_id"""
 
+# Un renglón por producto de cada remito, con lo necesario para el historial por lote.
+SQL_RENGLONES = """SELECT m.id, m.tipo, m.fecha, m.remito, m.observaciones, m.anulado,
+                          m.chofer, m.transporte, m.patente_camion, m.patente_semi, m.contenedor, m.tipo_contenedor,
+                          e.nombre AS empresa, p.id AS producto_id, p.codigo, p.descripcion, p.unidad,
+                          p.unidades_por_pallet, p.kilos_por_unidad, i.id AS item_id, i.cantidad,
+                          l.id AS lote_id, l.lote, l.vencimiento""" + SQL_MOVS_DESDE
 
-def _where_movimientos(f, con_anulados):
+
+def _where_movimientos(f, con_anulados, con_producto=True):
     where, params = [], []
     if f["empresa_id"]:
         where.append("m.empresa_id = ?")
@@ -513,42 +536,49 @@ def _where_movimientos(f, con_anulados):
     if f["remito"]:
         where.append("m.remito LIKE ?")
         params.append(f"%{f['remito']}%")
-    if f["producto"]:
+    if f["producto"] and con_producto:
         where.append("(p.codigo LIKE ? OR p.descripcion LIKE ? OR l.lote LIKE ?)")
         params += [f"%{f['producto']}%"] * 3
     if f["transporte"]:
         texto = f"%{f['transporte']}%"
-        condiciones = ["m.chofer LIKE ?", "m.transporte LIKE ?"]
-        params += [texto, texto]
+        condiciones = ["m.chofer LIKE ?", "m.transporte LIKE ?", "m.contenedor LIKE ?"]
+        params += [texto, texto, texto]
         patente = normalizar_patente(f["transporte"])
-        if patente:  # 'ab 123' encuentra la patente AB123CD
-            condiciones += ["m.patente_camion LIKE ?", "m.patente_semi LIKE ?"]
-            params += [f"%{patente}%"] * 2
+        if patente:  # 'ab 123' encuentra la patente AB123CD y 'mscu 123' el contenedor MSCU1234567
+            condiciones += ["m.patente_camion LIKE ?", "m.patente_semi LIKE ?", "m.contenedor LIKE ?"]
+            params += [f"%{patente}%"] * 3
         where.append("(" + " OR ".join(condiciones) + ")")
     if not con_anulados:
         where.append("m.anulado = 0")
     return (" WHERE " + " AND ".join(where)) if where else "", params
 
 
-def _renglones_movimientos(f, limite=5000):
-    """Un renglón por producto de cada remito, según los filtros."""
+LIMITE_RENGLONES = 5000
+
+
+def _renglones_movimientos(f, limite=LIMITE_RENGLONES):
+    """Un renglón por producto de cada remito, según los filtros, de lo más viejo a lo más nuevo.
+
+    Si hay más que el límite, quedan los más recientes.
+    """
     where, params = _where_movimientos(f, con_anulados=f["ver_anulados"])
-    sql = ("""SELECT m.id, m.tipo, m.fecha, m.remito, m.observaciones, m.anulado,
-                     m.chofer, m.transporte, m.patente_camion, m.patente_semi,
-                     e.nombre AS empresa, p.id AS producto_id, p.codigo, p.descripcion,
-                     p.unidad, p.unidades_por_pallet, i.cantidad, l.lote, l.vencimiento"""
-           + SQL_MOVS_DESDE + where + " ORDER BY m.fecha DESC, m.id DESC, i.id")
+    sql = SQL_RENGLONES + where + " ORDER BY m.fecha DESC, m.id DESC, i.id DESC"
     if limite:
         sql += f" LIMIT {int(limite)}"
-    return get_db().execute(sql, params).fetchall()
+    return get_db().execute(sql, params).fetchall()[::-1]
 
 
 def _totales_movimientos(f):
-    """Total de ingresos y egresos por tipo de envase (nunca cuenta los remitos anulados)."""
+    """Total de ingresos y egresos por tipo de envase, con sus kilos (nunca cuenta los remitos anulados)."""
     where, params = _where_movimientos(f, con_anulados=False)
     sql = ("""SELECT MIN(p.unidad) AS unidad,
                      SUM(CASE WHEN m.tipo = 'INGRESO' THEN i.cantidad ELSE 0 END) AS ingresos,
-                     SUM(CASE WHEN m.tipo = 'EGRESO' THEN i.cantidad ELSE 0 END) AS egresos"""
+                     SUM(CASE WHEN m.tipo = 'EGRESO' THEN i.cantidad ELSE 0 END) AS egresos,
+                     SUM(CASE WHEN m.tipo = 'INGRESO' THEN i.cantidad * COALESCE(p.kilos_por_unidad, 0)
+                              ELSE 0 END) AS kilos_ingresos,
+                     SUM(CASE WHEN m.tipo = 'EGRESO' THEN i.cantidad * COALESCE(p.kilos_por_unidad, 0)
+                              ELSE 0 END) AS kilos_egresos,
+                     COUNT(DISTINCT CASE WHEN p.kilos_por_unidad IS NULL THEN p.id END) AS sin_kilos"""
            + SQL_MOVS_DESDE + where + " GROUP BY p.unidad COLLATE NOCASE ORDER BY MIN(p.unidad)")
     return [
         {**dict(r), "diferencia": r["ingresos"] - r["egresos"]}
@@ -556,44 +586,100 @@ def _totales_movimientos(f):
     ]
 
 
+def _kilos_de_totales(totales):
+    """Los kilos de todos los envases juntos."""
+    ingresos = round(sum(t["kilos_ingresos"] for t in totales), 3)
+    egresos = round(sum(t["kilos_egresos"] for t in totales), 3)
+    return {"ingresos": ingresos, "egresos": egresos, "diferencia": round(ingresos - egresos, 3),
+            "sin_kilos": sum(t["sin_kilos"] for t in totales)}
+
+
+def _renglones_insumos(f):
+    """Los insumos adicionales de los remitos, con los mismos filtros (el de producto no aplica)."""
+    if f["producto"]:
+        return []
+    where, params = _where_movimientos(f, con_anulados=f["ver_anulados"], con_producto=False)
+    return get_db().execute(
+        """SELECT m.id, m.tipo, m.fecha, m.remito, m.anulado, e.nombre AS empresa,
+                  mi.insumo_id, mi.propietario, mi.cantidad, s.nombre, s.unidad
+           FROM movimientos m JOIN empresas e ON e.id = m.empresa_id
+           JOIN movimiento_insumos mi ON mi.movimiento_id = m.id
+           JOIN insumos s ON s.id = mi.insumo_id""" + where + " ORDER BY m.fecha, m.id, mi.id",
+        params,
+    ).fetchall()
+
+
+def _totales_insumos(renglones):
+    totales = {}
+    for r in renglones:
+        if r["anulado"]:
+            continue
+        t = totales.setdefault((r["nombre"].lower(), r["propietario"] or ""),
+                               {"nombre": ins.nombre_renglon(r), "unidad": r["unidad"], "entran": 0, "salen": 0})
+        t["entran" if r["tipo"] == "INGRESO" else "salen"] += r["cantidad"]
+    return [totales[k] for k in sorted(totales)]
+
+
 @bp.route("/movimientos")
 def movimientos():
     f = _filtros_movs()
+    renglones = _renglones_movimientos(f)
+    totales = _totales_movimientos(f)
+    insumos = _renglones_insumos(f)
     return render_template(
-        "movimientos.html", filas=_renglones_movimientos(f), totales=_totales_movimientos(f),
-        filtros=f, empresas=_empresas(), tipos=TIPOS,
+        "movimientos.html", libro=libro_por_lote(renglones, f["desde"], f["hasta"]),
+        cantidad_renglones=len(renglones), limite=LIMITE_RENGLONES, totales=totales,
+        kilos=_kilos_de_totales(totales), insumos=insumos, totales_insumos=_totales_insumos(insumos),
+        nombre_insumo=ins.nombre_renglon, filtros=f, empresas=_empresas(), tipos=TIPOS,
     )
 
 
 @bp.route("/movimientos/excel")
 def movimientos_excel():
     f = _filtros_movs()
-    filas = _renglones_movimientos(f, limite=None)
+    libro = libro_por_lote(_renglones_movimientos(f, limite=None), f["desde"], f["hasta"])
     encabezados = ["Fecha", "Remito", "Empresa", "Código", "Descripción", "Lote", "Vencimiento", "Envase",
-                   "Ingreso (debe)", "Egreso (haber)", "Equivale a (pallets)", "Chofer", "Empresa de transporte",
-                   "Patente camión", "Patente semi", "Observaciones", "Anulado"]
+                   "Ingreso (debe)", "Egreso (haber)", "Kilos", "Saldo del lote", "Saldo en kg", "Equivale a (pallets)",
+                   "Chofer", "Empresa de transporte", "Patente camión", "Patente semi", "Contenedor",
+                   "Tipo de contenedor", "Observaciones", "Anulado"]
+    filas = []
+    for p in libro:
+        for l in p["lotes"]:
+            if l["saldo_anterior"] is not None:
+                filas.append((f["desde"], "Saldo anterior", p["empresa"], p["codigo"], p["descripcion"], l["lote"],
+                              l["vencimiento"] or "", p["unidad"], None, None, None, l["saldo_anterior"],
+                              l["kilos_anterior"]))
+            for r in l["renglones"]:
+                filas.append((
+                    r["fecha"], r["remito"], r["empresa"], r["codigo"], r["descripcion"], r["lote"],
+                    r["vencimiento"] or "", r["unidad"],
+                    r["cantidad"] if r["tipo"] == "INGRESO" else None,
+                    r["cantidad"] if r["tipo"] == "EGRESO" else None,
+                    r["kilos"], r["saldo"], r["kilos_saldo"], cantidad_pallets(r["cantidad"], r["unidades_por_pallet"]),
+                    r["chofer"] or "", r["transporte"] or "", r["patente_camion"] or "", r["patente_semi"] or "",
+                    r["contenedor"] or "", r["tipo_contenedor"] or "", r["observaciones"] or "",
+                    "Sí" if r["anulado"] else "",
+                ))
     col_ingreso = encabezados.index("Ingreso (debe)")
+    vacio = [""] * (col_ingreso - 1)
     pie = []
-    for t in _totales_movimientos(f):
-        vacio = [""] * col_ingreso
-        pie.append([f"Total {t['unidad']}"] + vacio[1:] + [t["ingresos"], t["egresos"]])
-        pie.append([f"Diferencia {t['unidad']} (ingresos - egresos)"] + vacio[1:] + [t["diferencia"]])
-    return _excel(
-        "movimientos",
-        "Movimientos",
-        encabezados,
-        [
-            (r["fecha"], r["remito"], r["empresa"], r["codigo"], r["descripcion"], r["lote"],
-             r["vencimiento"] or "", r["unidad"],
-             r["cantidad"] if r["tipo"] == "INGRESO" else None,
-             r["cantidad"] if r["tipo"] == "EGRESO" else None,
-             cantidad_pallets(r["cantidad"], r["unidades_por_pallet"]),
-             r["chofer"] or "", r["transporte"] or "", r["patente_camion"] or "", r["patente_semi"] or "",
-             r["observaciones"] or "", "Sí" if r["anulado"] else "")
-            for r in filas
-        ],
-        pie=pie,
-    )
+    totales = _totales_movimientos(f)
+    for t in totales:
+        pie.append([f"Total {t['unidad']}"] + vacio + [t["ingresos"], t["egresos"]])
+        pie.append([f"Diferencia {t['unidad']} (ingresos - egresos)"] + vacio + [t["diferencia"]])
+    kilos = _kilos_de_totales(totales)
+    if kilos["ingresos"] or kilos["egresos"]:
+        pie.append(["Total kilos"] + vacio + [kilos["ingresos"], kilos["egresos"]])
+        pie.append(["Diferencia kilos (ingresos - egresos)"] + vacio + [kilos["diferencia"]])
+    insumos = [
+        (r["fecha"], r["remito"], r["empresa"], ins.nombre_renglon(r),
+         r["cantidad"] if r["tipo"] == "INGRESO" else None, r["cantidad"] if r["tipo"] == "EGRESO" else None,
+         r["unidad"], "Sí" if r["anulado"] else "")
+        for r in _renglones_insumos(f)
+    ]
+    hojas = [("Insumos", ["Fecha", "Remito", "Empresa", "Insumo", "En ingresos", "En egresos", "Unidad", "Anulado"],
+              insumos)] if insumos else []
+    return _excel("movimientos", "Movimientos", encabezados, filas, pie=pie, hojas_extra=hojas)
 
 
 def _distintos(columna):
@@ -622,14 +708,28 @@ def _transportes_previos():
         "transportes": _distintos("transporte"),
         "patentes_camion": _distintos("patente_camion"),
         "patentes_semi": _distintos("patente_semi"),
+        "contenedores": _distintos("contenedor"),
+        "tipos_contenedor": _tipos_contenedor(),
     }
 
 
-def _form_movimiento(tipo, form, renglones, mostrar_repetido=False):
+TIPOS_CONTENEDOR = ["20' Dry", "40' Dry", "40' High Cube", "20' Reefer", "40' Reefer", "20' Open Top",
+                    "40' Open Top", "20' Flat Rack", "40' Flat Rack", "20' Isotanque (ISO tank)"]
+
+
+def _tipos_contenedor():
+    """Los tipos ya usados primero y después los más comunes."""
+    usados = _distintos("tipo_contenedor")
+    vistos = {t.lower() for t in usados}
+    return usados + [t for t in TIPOS_CONTENEDOR if t.lower() not in vistos]
+
+
+def _form_movimiento(tipo, form, renglones, mostrar_repetido=False, textos_insumos=None):
     return render_template(
         "movimiento_form.html", tipo=tipo, tipos=TIPOS, empresas=_empresas(solo_activas=True),
         form=form, renglones=renglones, mostrar_repetido=mostrar_repetido,
-        previos=_transportes_previos(),
+        previos=_transportes_previos(), insumos=ins.lista(), campos_insumo=ins.campos,
+        textos_insumos=textos_insumos or {},
     )
 
 
@@ -651,9 +751,7 @@ def movimiento_nuevo(tipo):
     fecha = _texto("fecha")
     remito = _texto("remito")
     observaciones = _texto("observaciones")
-    transporte = {c: _texto(c) for c in CAMPOS_TRANSPORTE}
-    for c in ("patente_camion", "patente_semi"):
-        transporte[c] = normalizar_patente(transporte[c])
+    transporte = normalizar_transporte({c: _texto(c) for c in CAMPOS_TRANSPORTE})
     columnas = {c: request.form.getlist(c) for c in ("producto_id", "cantidad", "lote", "vencimiento", "lote_id")}
     largo = len(columnas["producto_id"])
     renglones = []
@@ -665,6 +763,9 @@ def movimiento_nuevo(tipo):
         if r["producto_id"] or (r["cantidad"] or "").strip():
             renglones.append(r)
 
+    insumos, errores_insumos, textos_insumos = ins.leer_formulario(request.form)
+    fotos, errores_fotos = ft.leer_subidas(request.files.getlist("fotos"))
+
     errores = []
     if not empresa_id:
         errores.append("Elegí la empresa.")
@@ -672,8 +773,11 @@ def movimiento_nuevo(tipo):
         errores.append("La fecha no es válida.")
     if not remito:
         errores.append("El número de remito es obligatorio.")
-    if not renglones:
-        errores.append("Cargá al menos un producto.")
+    if not renglones and not insumos and not errores_insumos:
+        errores.append("Cargá al menos un producto (o solo insumos, por ejemplo una devolución de pallets).")
+    errores += errores_insumos + errores_fotos
+    if tipo == "EGRESO" and empresa_id and insumos:
+        errores += ins.chequear_egreso(empresa_id, insumos)
 
     productos = {}
     if empresa_id:
@@ -747,9 +851,11 @@ def movimiento_nuevo(tipo):
     if errores:
         for e in dict.fromkeys(errores):  # sin repetidos
             flash(e, "error")
+        if fotos:
+            flash("Las fotos no se guardaron: volvé a elegirlas antes de guardar.", "aviso")
         form = {"empresa_id": empresa_id, "fecha": fecha, "remito": remito, "observaciones": observaciones,
                 "crear_pallets": request.form.get("crear_pallets", ""), **transporte}
-        return _form_movimiento(tipo, form, renglones, mostrar_repetido)
+        return _form_movimiento(tipo, form, renglones, mostrar_repetido, textos_insumos)
 
     plan_pallets = {}
     if tipo == "INGRESO":
@@ -762,14 +868,17 @@ def movimiento_nuevo(tipo):
         # Sin pallets escaneados: el programa decide de qué pallets sale (ver pallets.planear_salida).
         for pid, lid, cant in lineas:
             plan_pallets[(pid, lid)] = pl.planear_salida(lid, cant, productos[pid]["unidades_por_pallet"])
-    mid = registrar_movimiento(tipo, empresa_id, fecha, remito, observaciones, lineas, transporte)
+    mid = registrar_movimiento(tipo, empresa_id, fecha, remito, observaciones, lineas, transporte, insumos)
     avisos, creados = [], []
     if tipo == "INGRESO" and request.form.get("crear_pallets") == "1":
         creados, avisos = pl.crear_pallets_de_ingreso(mid)
     elif plan_pallets:
         pl.registrar_salida_de_pallets(mid, plan_pallets)
+    cantidad_fotos = ft.guardar(mid, fotos)
     db.commit()
     mensaje = f"{TIPOS[tipo]} guardado (remito {remito})."
+    if cantidad_fotos:
+        mensaje += " Con 1 foto." if cantidad_fotos == 1 else f" Con {cantidad_fotos} fotos."
     if creados:
         mensaje += (" Se armó 1 pallet" if len(creados) == 1 else f" Se armaron {len(creados)} pallets") \
             + ": imprimí sus etiquetas con el botón de abajo."
@@ -793,21 +902,34 @@ def _movimiento_o_404(movimiento_id):
 @bp.route("/movimientos/<int:movimiento_id>")
 def movimiento_detalle(movimiento_id):
     m = _movimiento_o_404(movimiento_id)
-    items = get_db().execute(
-        """SELECT i.cantidad, p.id AS producto_id, p.codigo, p.descripcion, p.unidad,
-                  p.unidades_por_pallet, l.lote, l.vencimiento
-           FROM movimiento_items i JOIN productos p ON p.id = i.producto_id
-           JOIN lotes l ON l.id = i.lote_id
-           WHERE i.movimiento_id = ? ORDER BY i.id""",
-        (movimiento_id,),
-    ).fetchall()
+    items = [
+        {**dict(i), "kilos": _kilos(i["cantidad"], i["kilos_por_unidad"])}
+        for i in get_db().execute(
+            """SELECT i.cantidad, p.id AS producto_id, p.codigo, p.descripcion, p.unidad,
+                      p.unidades_por_pallet, p.kilos_por_unidad, l.lote, l.vencimiento
+               FROM movimiento_items i JOIN productos p ON p.id = i.producto_id
+               JOIN lotes l ON l.id = i.lote_id
+               WHERE i.movimiento_id = ? ORDER BY i.id""",
+            (movimiento_id,),
+        )
+    ]
+    por_envase = {}
+    for i in items:
+        por_envase.setdefault(i["unidad"].lower(), [i["unidad"], 0])[1] += i["cantidad"]
+    totales = {
+        "envases": list(por_envase.values()),
+        "kilos": round(sum(i["kilos"] or 0 for i in items), 3),
+        "sin_kilos": sorted({i["codigo"] for i in items if i["kilos"] is None}),
+    }
     usados = pl.pallets_de_movimiento(movimiento_id)
     armados = []
     if m["tipo"] == "INGRESO":
         armados = pl.pallets(ids=[r[0] for r in get_db().execute(
             "SELECT id FROM pallets WHERE movimiento_id = ?", (movimiento_id,))], con_contenido=False)
-    return render_template("movimiento_detalle.html", m=m, items=items, tipos=TIPOS, usados=usados,
-                           armados=sorted(armados, key=lambda p: p["id"]))
+    return render_template("movimiento_detalle.html", m=m, items=items, totales=totales, tipos=TIPOS,
+                           usados=usados, armados=sorted(armados, key=lambda p: p["id"]),
+                           insumos=ins.de_movimiento(movimiento_id), nombre_insumo=ins.nombre_renglon,
+                           fotos=ft.de_movimiento(movimiento_id))
 
 
 @bp.route("/movimientos/<int:movimiento_id>/anular", methods=["POST"])
@@ -850,12 +972,108 @@ def movimiento_anular(movimiento_id):
             flash("No se puede anular: " + "; ".join(problemas)
                   + ". Primero anulá esos egresos o desarmá esos pallets.", "error")
             return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))
+        problemas = ins.problemas_al_anular(m)
+        if problemas:
+            flash("No se puede anular: " + "; ".join(problemas)
+                  + ". Primero anulá los egresos que sacaron esos pallets.", "error")
+            return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))
     db.execute(
         "UPDATE movimientos SET anulado = 1, motivo_anulacion = ? WHERE id = ?", (motivo, movimiento_id)
     )
     db.commit()
     flash("Remito anulado. El stock se recalculó.", "ok")
     return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))
+
+
+# -------------------------------------------------------------------- fotos
+
+
+@bp.route("/movimientos/<int:movimiento_id>/fotos", methods=["POST"])
+def movimiento_fotos(movimiento_id):
+    _movimiento_o_404(movimiento_id)
+    subidas, errores = ft.leer_subidas(request.files.getlist("fotos"))
+    for e in errores:
+        flash(e, "error")
+    if not subidas and not errores:
+        flash("Elegí al menos una foto.", "error")
+    if subidas:
+        cantidad = ft.guardar(movimiento_id, subidas)
+        get_db().commit()
+        flash("Se agregó 1 foto." if cantidad == 1 else f"Se agregaron {cantidad} fotos.", "ok")
+    return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id) + "#fotos")
+
+
+@bp.route("/fotos/<int:foto_id>")
+def foto(foto_id):
+    fila = ft.buscar(foto_id)
+    if fila is None:
+        abort(404)
+    return send_from_directory(current_app.config["FOTOS"], fila["archivo"], mimetype=ft.tipo_mime(fila))
+
+
+@bp.route("/fotos/<int:foto_id>/borrar", methods=["POST"])
+def foto_borrar(foto_id):
+    fila = ft.buscar(foto_id)
+    if fila is None:
+        abort(404)
+    ft.borrar(fila)
+    flash("Foto quitada.", "ok")
+    return redirect(url_for("stock.movimiento_detalle", movimiento_id=fila["movimiento_id"]) + "#fotos")
+
+
+# ----------------------------------------------------------------- insumos
+
+
+@bp.route("/api/insumos")
+def api_insumos():
+    """Saldo de pallets (y otros insumos) del cliente en el depósito: {insumo_id: saldo}."""
+    empresa_id = _int_o_none(request.args.get("empresa_id"))
+    saldos = ins.saldos_cliente(empresa_id) if empresa_id else {}
+    return jsonify({str(iid): saldo for (_, iid), saldo in saldos.items()})
+
+
+@bp.route("/insumos", methods=["GET", "POST"])
+def insumos_lista():
+    db = get_db()
+    if request.method == "POST":
+        nombre, unidad = _texto("nombre"), _texto("unidad") or "unidades"
+        if not nombre:
+            flash("Escribí el nombre del insumo.", "error")
+        elif db.execute("SELECT 1 FROM insumos WHERE nombre = ?", (nombre,)).fetchone():
+            flash(f"'{nombre}' ya está en la lista.", "error")
+        else:
+            db.execute("INSERT INTO insumos (nombre, unidad, con_propietario) VALUES (?,?,?)",
+                       (nombre, unidad, 1 if request.form.get("con_propietario") else 0))
+            db.commit()
+            flash(f"Se agregó '{nombre}'.", "ok")
+        return redirect(url_for("stock.insumos_lista"))
+    filas = db.execute(
+        """SELECT s.*, (SELECT COUNT(*) FROM movimiento_insumos mi WHERE mi.insumo_id = s.id) AS usos
+           FROM insumos s ORDER BY s.activo DESC, s.con_propietario DESC, s.nombre"""
+    ).fetchall()
+    return render_template("insumos.html", insumos=filas, saldos=ins.saldos_por_empresa())
+
+
+@bp.route("/insumos/<int:insumo_id>", methods=["POST"])
+def insumo_editar(insumo_id):
+    db = get_db()
+    insumo = db.execute("SELECT * FROM insumos WHERE id = ?", (insumo_id,)).fetchone()
+    if insumo is None:
+        abort(404)
+    if request.form.get("accion") == "activar":
+        db.execute("UPDATE insumos SET activo = 1 - activo WHERE id = ?", (insumo_id,))
+        db.commit()
+        return redirect(url_for("stock.insumos_lista"))
+    nombre, unidad = _texto("nombre"), _texto("unidad") or insumo["unidad"]
+    if not nombre:
+        flash("El nombre no puede quedar vacío.", "error")
+    elif db.execute("SELECT 1 FROM insumos WHERE nombre = ? AND id <> ?", (nombre, insumo_id)).fetchone():
+        flash(f"Ya existe un insumo llamado '{nombre}'.", "error")
+    else:
+        db.execute("UPDATE insumos SET nombre = ?, unidad = ? WHERE id = ?", (nombre, unidad, insumo_id))
+        db.commit()
+        flash("Insumo actualizado.", "ok")
+    return redirect(url_for("stock.insumos_lista"))
 
 
 # ------------------------------------------------------- importar planilla
@@ -895,9 +1113,11 @@ def importar():
 @bp.route("/importar/plantilla")
 def importar_plantilla():
     ejemplo = [
-        ("Empresa Ejemplo SA", "ABC-001", "Producto de ejemplo x 25kg", "Bolsas", 40, "L2026-15", "31/12/2027", 120),
-        ("Empresa Ejemplo SA", "ABC-001", "Producto de ejemplo x 25kg", "Bolsas", 40, "L2026-22", "30/06/2028", 40),
-        ("Otra Empresa SRL", "XY-10", "Solvente x 200 L", "Tambores de chapa", 4, "", "", 15),
+        ("Empresa Ejemplo SA", "ABC-001", "Producto de ejemplo x 25kg", "Bolsas", 40, 25, "L2026-15", "31/12/2027",
+         120),
+        ("Empresa Ejemplo SA", "ABC-001", "Producto de ejemplo x 25kg", "Bolsas", 40, 25, "L2026-22", "30/06/2028",
+         40),
+        ("Otra Empresa SRL", "XY-10", "Solvente x 200 L", "Tambores de chapa", 4, 180, "", "", 15),
     ]
     archivo = armar_excel("Conteo", ENCABEZADOS_PLANTILLA, ejemplo)
     return send_file(

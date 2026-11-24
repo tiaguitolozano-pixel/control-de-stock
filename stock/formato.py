@@ -31,6 +31,13 @@ def cantidad_pallets(cantidad, por_pallet):
     return round(float(cantidad) / float(por_pallet), 3)
 
 
+def texto_kilos(cantidad, kilos_por_unidad):
+    """10 tambores de 200 kg -> '2.000 kg' ('' si el producto no tiene cargados los kilos)."""
+    if not kilos_por_unidad or cantidad is None:
+        return ""
+    return f"{formato_numero(round(float(cantidad) * float(kilos_por_unidad), 3))} kg"
+
+
 def texto_pallets(cantidad, por_pallet, unidad=""):
     """100 bolsas con 40 por pallet -> '2 pallets + 20 bolsas'."""
     if not por_pallet or cantidad is None or cantidad <= 0:

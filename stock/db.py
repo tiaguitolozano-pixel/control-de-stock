@@ -159,6 +159,39 @@ MIGRACIONES = [
     CREATE INDEX IF NOT EXISTS idx_pallet_movs_item ON pallet_movs(item_id);
     CREATE INDEX IF NOT EXISTS idx_pallet_ubic_pallet ON pallet_ubicaciones(pallet_id);
     """,
+    # 3: kilos por unidad, contenedor, insumos adicionales (pallets, film stretch) y fotos de los remitos.
+    """
+    ALTER TABLE productos ADD COLUMN kilos_por_unidad REAL;
+    ALTER TABLE movimientos ADD COLUMN contenedor TEXT;
+    ALTER TABLE movimientos ADD COLUMN tipo_contenedor TEXT;
+    CREATE TABLE IF NOT EXISTS insumos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        unidad TEXT NOT NULL DEFAULT 'unidades',
+        -- 1: en cada remito se indica si son propios o del cliente; los del cliente llevan saldo.
+        con_propietario INTEGER NOT NULL DEFAULT 0,
+        activo INTEGER NOT NULL DEFAULT 1
+    );
+    INSERT OR IGNORE INTO insumos (nombre, unidad, con_propietario) VALUES ('Pallets', 'pallets', 1);
+    INSERT OR IGNORE INTO insumos (nombre, unidad, con_propietario) VALUES ('Film stretch', 'rollos', 0);
+    CREATE TABLE IF NOT EXISTS movimiento_insumos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        movimiento_id INTEGER NOT NULL REFERENCES movimientos(id),
+        insumo_id INTEGER NOT NULL REFERENCES insumos(id),
+        cantidad REAL NOT NULL CHECK (cantidad > 0),
+        propietario TEXT CHECK (propietario IN ('PROPIO', 'CLIENTE'))
+    );
+    -- archivo: nombre dentro de datos/fotos (la foto no se guarda en la base).
+    CREATE TABLE IF NOT EXISTS movimiento_fotos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        movimiento_id INTEGER NOT NULL REFERENCES movimientos(id),
+        archivo TEXT NOT NULL,
+        nombre_original TEXT,
+        creado_en TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_mov_insumos_mov ON movimiento_insumos(movimiento_id);
+    CREATE INDEX IF NOT EXISTS idx_mov_fotos_mov ON movimiento_fotos(movimiento_id);
+    """,
 ]
 
 
@@ -222,7 +255,7 @@ def init_db():
 # Stock = ingresos - egresos (sin contar remitos anulados).
 SQL_STOCK = """
 SELECT p.id, p.codigo, p.descripcion, p.unidad, p.stock_minimo, p.activo, p.unidades_por_pallet,
-       e.id AS empresa_id, e.nombre AS empresa,
+       p.kilos_por_unidad, e.id AS empresa_id, e.nombre AS empresa,
        COALESCE(SUM(CASE WHEN m.tipo = 'INGRESO' THEN i.cantidad
                          WHEN m.tipo = 'EGRESO' THEN -i.cantidad END), 0) AS stock,
        MAX(m.fecha) AS ultimo_mov
@@ -262,7 +295,7 @@ def stock_por_id(producto_ids):
 
 SQL_LOTES = """
 SELECT l.id, l.lote, l.vencimiento, p.id AS producto_id, p.codigo, p.descripcion, p.unidad,
-       p.unidades_por_pallet, e.id AS empresa_id, e.nombre AS empresa,
+       p.unidades_por_pallet, p.kilos_por_unidad, e.id AS empresa_id, e.nombre AS empresa,
        COALESCE(SUM(CASE WHEN m.tipo = 'INGRESO' THEN i.cantidad
                          WHEN m.tipo = 'EGRESO' THEN -i.cantidad END), 0) AS stock
 FROM lotes l
