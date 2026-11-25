@@ -25,8 +25,9 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
   - **Insumos adicionales** de cada remito: pallets (propios o del cliente), film stretch y los que se agreguen.
     Los pallets del cliente llevan saldo por empresa (no pueden salir más de los que hay); los propios y el film
     solo quedan anotados. Puede haber remitos solo de insumos, por ejemplo una devolución de pallets.
-  - **Fotos** del remito (la mercadería al llegar, el camión cargado, el precinto…). Se achican solas antes de
-    guardarse y se pueden agregar más después, desde el remito.
+  - **Fotos** en las observaciones del remito (la mercadería al llegar, un daño, el camión cargado, el precinto…).
+    Se eligen debajo de la observación general, se achican solas antes de guardarse y se pueden agregar más
+    después, desde el remito. En el historial, al lado de la observación, se ve cuántas fotos tiene cada remito.
   - No deja sacar más de lo que hay (ni del producto ni del lote).
   - Avisa si se carga dos veces el mismo remito de ingreso.
   - Los remitos mal cargados no se borran: se **anulan** con un motivo y quedan en el historial.

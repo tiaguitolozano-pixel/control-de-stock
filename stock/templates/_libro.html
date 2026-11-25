@@ -33,7 +33,7 @@
         <td class="num saldo">{{ r.saldo|num if r.saldo is not none else '' }}</td>
         <td class="num">{{ r.kilos_saldo|num if r.kilos_saldo is not none else '' }}</td>
         <td class="chico">{{ r.chofer or '' }}{% if r.patente_camion %}{{ ' · ' if r.chofer }}{{ r.patente_camion }}{% endif %}{% if r.contenedor %}{{ ' · ' if r.chofer or r.patente_camion }}Cont. {{ r.contenedor }}{% endif %}</td>
-        <td class="chico">{{ r.observaciones or '' }}</td>
+        <td class="chico">{{ r.observaciones or '' }}{% if r.fotos %}{{ ' · ' if r.observaciones }}<a href="{{ url_for('stock.movimiento_detalle', movimiento_id=r.id) }}#fotos" class="nowrap">📷 {{ r.fotos }} foto{{ 's' if r.fotos != 1 }}</a>{% endif %}</td>
       </tr>
       {% endfor %}
       <tr class="lote-total"><td colspan="2">Total {{ ('lote ' ~ l.lote) if l.lote else 'sin lote' }}</td>

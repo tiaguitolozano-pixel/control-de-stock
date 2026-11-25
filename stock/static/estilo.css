@@ -101,7 +101,7 @@ form.en-linea { display: inline-flex; gap: 6px; align-items: center; margin: 0; 
 form.en-linea input { width: 240px; }
 tr.inactiva td { color: var(--gris); }
 .observacion { white-space: pre-wrap; margin: 0; }
-td.nowrap { white-space: nowrap; }
+td.nowrap, a.nowrap { white-space: nowrap; }
 /* --- depósito y pallets --- */
 .mensajes .aviso { background: var(--amarillo-claro); color: #6b4e00; }
 a.tarjeta.aviso-tarjeta { background: var(--amarillo-claro); border-color: #e2c45a; }

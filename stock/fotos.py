@@ -71,6 +71,19 @@ def de_movimiento(movimiento_id):
     ).fetchall()
 
 
+def cantidad_por_movimiento(movimiento_ids):
+    """{movimiento_id: cuántas fotos tiene}, solo de los que tienen alguna."""
+    ids = list(movimiento_ids)
+    if not ids:
+        return {}
+    filas = get_db().execute(
+        f"""SELECT movimiento_id, COUNT(*) FROM movimiento_fotos
+            WHERE movimiento_id IN ({','.join('?' * len(ids))}) GROUP BY movimiento_id""",
+        ids,
+    ).fetchall()
+    return {r[0]: r[1] for r in filas}
+
+
 def buscar(foto_id):
     return get_db().execute("SELECT * FROM movimiento_fotos WHERE id = ?", (foto_id,)).fetchone()
 

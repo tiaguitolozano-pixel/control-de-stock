@@ -2,6 +2,7 @@
 from collections import defaultdict
 
 from .db import get_db
+from .fotos import cantidad_por_movimiento
 
 
 def _con_signo(r):
@@ -70,6 +71,7 @@ def libro_por_lote(renglones, desde="", hasta=""):
     """Agrupa los renglones por producto y lote, cada lote en orden de fecha.
 
     renglones: un renglón por producto de cada remito (con item_id, lote_id, producto_id, cantidad, tipo...).
+    Cada renglón lleva también cuántas fotos tiene su remito (se muestran junto a las observaciones).
     El saldo de cada renglón es el saldo real del lote después de ese remito, contando todos los remitos
     no anulados aunque los filtros oculten algunos. Si hay fecha 'desde', cada lote empieza con el saldo
     que tenía antes de esa fecha.
@@ -77,6 +79,7 @@ def libro_por_lote(renglones, desde="", hasta=""):
     renglones = sorted(renglones, key=lambda r: (r["fecha"], r["id"], r["item_id"]))
     despues, anterior, final = saldos_de_lotes({r["lote_id"] for r in renglones}, desde, hasta)
     generales = saldos_de_productos({r["producto_id"] for r in renglones}, hasta)
+    fotos = cantidad_por_movimiento({r["id"] for r in renglones})
     productos = {}
     for r in renglones:
         kg = r["kilos_por_unidad"]
@@ -103,6 +106,7 @@ def libro_por_lote(renglones, desde="", hasta=""):
         fila["kilos"] = _kilos(r["cantidad"], kg)
         fila["saldo"] = None if r["anulado"] else despues.get(r["item_id"])
         fila["kilos_saldo"] = _kilos(fila["saldo"], kg)
+        fila["fotos"] = fotos.get(r["id"], 0)
         if not r["anulado"]:
             lote["ingresos" if r["tipo"] == "INGRESO" else "egresos"] += r["cantidad"]
         lote["renglones"].append(fila)

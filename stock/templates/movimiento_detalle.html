@@ -23,6 +23,28 @@
   </dl>
   <h3 class="subtitulo">Observación general</h3>
   <p class="observacion">{{ m.observaciones or '—' }}</p>
+  <div id="fotos">
+    {% if fotos %}
+    <div class="ayuda" style="margin:12px 0 6px">Fotos ({{ fotos|length }})</div>
+    <div class="fotos">
+      {% for f in fotos %}
+      <figure>
+        <a href="{{ url_for('stock.foto', foto_id=f.id) }}" target="_blank"><img src="{{ url_for('stock.foto', foto_id=f.id) }}" alt="{{ f.nombre_original or 'Foto' }}" loading="lazy"></a>
+        <figcaption class="no-imprimir">
+          <form method="post" action="{{ url_for('stock.foto_borrar', foto_id=f.id) }}" onsubmit="return confirm('¿Quitar esta foto?')">
+            <button class="boton chico secundario">Quitar</button>
+          </form>
+        </figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <form method="post" action="{{ url_for('stock.movimiento_fotos', movimiento_id=m.id) }}" enctype="multipart/form-data" class="en-linea no-imprimir" id="form-fotos" style="margin-top:12px">
+      <label for="fotos-agregar" style="margin:0">{{ 'Agregar más fotos' if fotos else 'Agregar fotos' }}:</label>
+      <input type="file" name="fotos" id="fotos-agregar" accept="image/*" multiple required style="width:auto">
+      <button class="boton secundario">Subir</button>
+    </form>
+  </div>
 </div>
 {% if items %}
 <div class="tabla">
@@ -95,29 +117,6 @@
 </table>
 </div>
 {% endif %}
-<h2 id="fotos">Fotos{% if fotos %} ({{ fotos|length }}){% endif %}</h2>
-<div class="tarjeta">
-  {% if fotos %}
-  <div class="fotos">
-    {% for f in fotos %}
-    <figure>
-      <a href="{{ url_for('stock.foto', foto_id=f.id) }}" target="_blank"><img src="{{ url_for('stock.foto', foto_id=f.id) }}" alt="{{ f.nombre_original or 'Foto' }}" loading="lazy"></a>
-      <figcaption class="no-imprimir">
-        <form method="post" action="{{ url_for('stock.foto_borrar', foto_id=f.id) }}" onsubmit="return confirm('¿Quitar esta foto?')">
-          <button class="boton chico secundario">Quitar</button>
-        </form>
-      </figcaption>
-    </figure>
-    {% endfor %}
-  </div>
-  {% else %}
-  <p class="ayuda" style="margin-top:0">Este remito no tiene fotos.</p>
-  {% endif %}
-  <form method="post" action="{{ url_for('stock.movimiento_fotos', movimiento_id=m.id) }}" enctype="multipart/form-data" class="en-linea no-imprimir" id="form-fotos" style="margin-top:12px">
-    <input type="file" name="fotos" id="fotos" accept="image/*" multiple required style="width:auto">
-    <button class="boton secundario">Agregar fotos</button>
-  </form>
-</div>
 <div class="acciones" style="margin-top:16px">
   {% if armados %}<a class="boton verde" href="{{ url_for('deposito.etiquetas_pallets', movimiento_id=m.id) }}" target="_blank">🖨 Imprimir etiquetas de los pallets</a>{% endif %}
   {% if m.tipo == 'INGRESO' and not armados and not m.anulado %}<a class="boton secundario" href="{{ url_for('deposito.pallets_armar', empresa_id=m.empresa_id) }}">Armar pallets con etiqueta</a>{% endif %}
@@ -138,5 +137,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='fotos.js') }}"></script>
-<script>prepararFotos(document.getElementById('fotos'), document.getElementById('form-fotos'));</script>
+<script>prepararFotos(document.getElementById('fotos-agregar'), document.getElementById('form-fotos'));</script>
 {% endblock %}

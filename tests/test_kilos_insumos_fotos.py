@@ -240,6 +240,31 @@ def test_lo_que_no_es_foto_no_se_guarda(app, client):
     assert "volvé a elegirlas" in errores(r)
 
 
+def test_fotos_van_en_las_observaciones(client):
+    """Pedido del 25/11: las fotos se eligen debajo de la observación general y se ven junto a ella."""
+    crear_empresa(client)
+    crear_producto(client)
+    for tipo in ("ingreso", "egreso"):
+        pagina = client.get(f"/movimientos/nuevo/{tipo}").get_data(as_text=True)
+        observacion, fotos = pagina.index('name="observaciones"'), pagina.index('name="fotos"')
+        assert observacion < fotos < pagina.index(">Productos</h2>"), tipo
+    data = {"empresa_id": 1, "fecha": "2026-11-10", "remito": "R-1", "producto_id": "1", "cantidad": "10",
+            "lote": "L1", "vencimiento": "", "observaciones": "Un tambor golpeado",
+            "fotos": [(BytesIO(JPG), "golpe.jpg"), (BytesIO(JPG), "otra.jpg")]}
+    r = client.post("/movimientos/nuevo/ingreso", data=data, content_type="multipart/form-data")
+    assert r.status_code == 302
+    detalle = client.get("/movimientos/1").get_data(as_text=True)
+    assert detalle.index("Un tambor golpeado") < detalle.index('src="/fotos/') < detalle.index("<table")
+    assert detalle.count('id="fotos"') == 1 and 'id="fotos-agregar"' in detalle
+    historial = client.get("/movimientos").get_data(as_text=True)
+    assert "Un tambor golpeado · " in historial and "📷 2 fotos" in historial
+    assert 'href="/movimientos/1#fotos"' in historial
+    # Un remito sin fotos no muestra nada de más.
+    assert movimiento(client, "egreso", [(1, "3")], remito="E-1", observaciones="Sin fotos").status_code == 302
+    historial = client.get("/movimientos").get_data(as_text=True)
+    assert "Sin fotos</td>" in historial and historial.count("📷") == 1
+
+
 def test_envio_demasiado_grande(tmp_path):
     app = create_app({"TESTING": True, "DATABASE": str(tmp_path / "t.db"), "MAX_CONTENT_LENGTH": 2000})
     client = app.test_client()
