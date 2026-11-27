@@ -137,6 +137,23 @@ table.insumos td input { width: 110px; }
 table.insumos tr:hover td { background: none; }
 .saldo-insumo { font-size: 13px; color: var(--gris); max-width: 320px; }
 .saldo-insumo.negativo { color: var(--rojo); font-weight: 600; }
+table.stock-inicial td { padding: 6px; vertical-align: top; }
+table.stock-inicial td input { min-width: 120px; }
+table.stock-inicial tfoot td { background: var(--azul-claro); font-weight: 700; border-top: 2px solid var(--azul); }
+details > summary { cursor: pointer; }
+@media (max-width: 640px) {
+  /* En el celular cada lote del stock inicial va en su propio bloque, con el nombre de cada casillero arriba. */
+  table.stock-inicial thead { display: none; }
+  table.stock-inicial, table.stock-inicial tbody, table.stock-inicial tfoot { display: block; }
+  table.stock-inicial tr { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; padding: 10px; border-bottom: 1px solid var(--borde); }
+  table.stock-inicial td, table.stock-inicial tfoot td { padding: 0; border: 0; background: none; }
+  table.stock-inicial td:empty { display: none; }
+  table.stock-inicial td[data-etiqueta]::before { content: attr(data-etiqueta); display: block; font-size: 13px;
+                                                  color: var(--gris); margin-bottom: 4px; }
+  table.stock-inicial td input { min-width: 0; }
+  table.stock-inicial tbody td:last-child { padding-top: 22px; }
+  table.stock-inicial tfoot tr { background: var(--azul-claro); border-top: 2px solid var(--azul); border-bottom: 0; }
+}
 @media (max-width: 640px) {
   /* En el celular cada insumo o envase va en su propio bloque: nombre arriba, casilleros abajo y el saldo debajo. */
   table.insumos, table.insumos tbody, table.insumos tr { display: block; }

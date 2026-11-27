@@ -6,8 +6,10 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
 ## Qué hace
 
 - **Empresas**: alta y edición de las empresas clientes (nombre, CUIT, contacto, teléfono).
-- **Productos**: cada empresa tiene sus productos (código, descripción, tipo de envase, unidades por pallet,
-  kilos por unidad y stock mínimo opcional). Dos empresas pueden usar el mismo código sin mezclarse.
+- **Productos**: cada empresa tiene sus productos (código, descripción, tipo de envase, unidades por pallet y
+  kilos por unidad). Al crear un producto se carga su **stock inicial**, una fila por lote (lote, vencimiento y
+  cantidad): queda como un ingreso con el remito "STOCK INICIAL". Opcional y escondido: un aviso de stock mínimo.
+  Dos empresas pueden usar el mismo código sin mezclarse.
 - **Kilos**: con los kilos por unidad de cada producto, el programa calcula los kilos totales (kilos por unidad ×
   cantidad) en el stock, en cada lote, en cada renglón de los remitos y en los totales.
 - **Tipos de envase**: bolsas, tambores de chapa, tambores de plástico, cisternas, bidones, cajas… La lista se
@@ -39,8 +41,8 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
   dónde sale el producto (de afuera o del stock del depósito), los envases vacíos que se usan y los sucios que quedan.
   Lleva la cuenta de los **envases vacíos y sucios de cada cliente**: cada trasvaso usa sus vacíos y le deja los
   sucios. Ver [Trasvasos](#trasvasos).
-- **Stock actual** por empresa y producto, con aviso en amarillo cuando está por debajo del mínimo
-  y la fecha de vencimiento más próxima. Se puede abrir el detalle por lote debajo de cada código y buscar por lote.
+- **Stock actual** por empresa y producto, con la fecha de vencimiento más próxima (y aviso en amarillo si se
+  cargó un stock mínimo y está por debajo). Se puede abrir el detalle por lote debajo de cada código y buscar por lote.
 - **Stock por lote**, con los vencidos en rojo y los que vencen en los próximos 60 días en amarillo.
 - **Importar desde Excel** el conteo inicial (por ejemplo, lo que sale del programa Cristal):
   crea solas las empresas y productos que falten. Hay una planilla de ejemplo para bajar.
@@ -117,8 +119,10 @@ esa empresa solo con esos envases (apartado **Envases vacíos del cliente**, rem
 
 **Opción a mano:**
 1. **Empresas → Nueva empresa**: cargar las empresas clientes.
-2. **Productos → Nuevo producto**: cargar los productos de cada empresa.
-3. **+ Ingreso**: cargar el stock inicial (por ejemplo, un remito "STOCK INICIAL" con la fecha de hoy).
+2. **Productos → Nuevo producto**: cargar cada producto con su **stock inicial**, lo que hay hoy en el depósito
+   (por ejemplo, lo que figura en Cristal): una fila por lote con su vencimiento y cantidad. Se guarda como un
+   ingreso con el remito "STOCK INICIAL" y la fecha elegida. Si un producto se creó sin stock inicial, se le puede
+   cargar después desde **Editar**, mientras no tenga remitos; o con un **+ Ingreso** con el remito "STOCK INICIAL".
 
 A partir de ahí, cargar cada ingreso y egreso con su remito.
 

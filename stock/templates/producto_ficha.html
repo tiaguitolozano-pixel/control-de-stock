@@ -9,7 +9,7 @@
   <div class="tarjeta"><div class="valor">{{ p.kilos_por_unidad|num if p.kilos_por_unidad else '—' }}</div><div class="etiqueta">Kg por unidad</div></div>
   <div class="tarjeta"><div class="valor" style="font-size:20px">{{ p.empresa }}</div><div class="etiqueta">Empresa</div></div>
   <div class="tarjeta"><div class="valor">{{ p.unidades_por_pallet|num if p.unidades_por_pallet else '—' }}</div><div class="etiqueta">{{ p.unidad }} por pallet</div></div>
-  <div class="tarjeta"><div class="valor">{{ p.stock_minimo|num if p.stock_minimo else '—' }}</div><div class="etiqueta">Stock mínimo</div></div>
+  {% if p.stock_minimo %}<div class="tarjeta"><div class="valor">{{ p.stock_minimo|num }}</div><div class="etiqueta">Stock mínimo</div></div>{% endif %}
 </div>
 <div class="acciones">
   <a class="boton secundario" href="{{ url_for('stock.producto_form', producto_id=p.id) }}">Editar producto</a>

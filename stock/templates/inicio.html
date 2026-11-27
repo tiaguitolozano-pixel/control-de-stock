@@ -6,7 +6,7 @@
   <div class="tarjeta"><div class="valor">{{ resumen.empresas }}</div><div class="etiqueta">Empresas activas</div></div>
   <div class="tarjeta"><div class="valor">{{ resumen.productos }}</div><div class="etiqueta">Productos activos</div></div>
   <div class="tarjeta"><div class="valor">{{ resumen.movs_hoy }}</div><div class="etiqueta">Remitos de hoy</div></div>
-  <div class="tarjeta"><div class="valor">{{ resumen.bajo_minimo }}</div><div class="etiqueta">Bajo el mínimo (en la lista)</div></div>
+  {% if resumen.hay_minimos %}<div class="tarjeta"><div class="valor">{{ resumen.bajo_minimo }}</div><div class="etiqueta">Bajo el mínimo (en la lista)</div></div>{% endif %}
   <a class="tarjeta enlace" href="{{ url_for('stock.lotes', vence='por_vencer', empresa_id=filtros.empresa_id) }}"><div class="valor {{ 'alerta' if resumen.por_vencer }}">{{ resumen.por_vencer }}</div><div class="etiqueta">Lotes vencidos o que vencen en {{ dias_aviso }} días</div></a>
   <div class="tarjeta"><div class="valor">{{ resumen.kilos|num }} <small>kg</small></div><div class="etiqueta">Kilos en stock (en la lista)</div></div>
   {% for nombre, saldo in resumen.insumos_cliente %}
@@ -45,7 +45,7 @@
 {% set detallar = filtros.ver_lotes or filtros.lote %}
 <div class="tabla">
 <table>
-  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th class="num">Cantidad</th><th>Envase</th><th class="num">Kg por unidad</th><th class="num">Kilos totales</th><th>Equivale a</th><th class="num">Mínimo</th><th>Próx. vencimiento</th><th>Último mov.</th></tr></thead>
+  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th class="num">Cantidad</th><th>Envase</th><th class="num">Kg por unidad</th><th class="num">Kilos totales</th><th>Equivale a</th>{% if resumen.hay_minimos %}<th class="num">Mínimo</th>{% endif %}<th>Próx. vencimiento</th><th>Último mov.</th></tr></thead>
   <tbody>
   {% for r in filas %}
     <tr class="{{ 'bajo' if r.stock_minimo > 0 and r.stock < r.stock_minimo }} {{ 'con-lotes' if detallar }}">
@@ -57,7 +57,7 @@
       <td class="num">{{ r.kilos_por_unidad|num if r.kilos_por_unidad else '' }}</td>
       <td class="num"><strong>{{ r.stock|kilos(r.kilos_por_unidad) }}</strong></td>
       <td class="pallets">{{ r.stock|pallets(r.unidades_por_pallet, r.unidad) }}</td>
-      <td class="num">{{ r.stock_minimo|num if r.stock_minimo else '' }}</td>
+      {% if resumen.hay_minimos %}<td class="num">{{ r.stock_minimo|num if r.stock_minimo else '' }}</td>{% endif %}
       {% set v = vtos.get(r.id) %}
       <td class="{{ 'vencido' if v and v < hoy_iso else ('por-vencer' if v and v <= limite_aviso) }}">{{ v|fecha }}</td>
       <td>{{ r.ultimo_mov|fecha }}</td>
@@ -73,14 +73,14 @@
           <td></td>
           <td class="num">{{ l.stock|kilos(l.kilos_por_unidad) }}</td>
           <td class="pallets">{{ l.stock|pallets(l.unidades_por_pallet, l.unidad) }}</td>
-          <td></td>
+          {% if resumen.hay_minimos %}<td></td>{% endif %}
           <td class="{{ 'vencido' if lv and lv < hoy_iso else ('por-vencer' if lv and lv <= limite_aviso) }}">{{ lv|fecha }}{% if lv and lv < hoy_iso %} <span class="etq EGRESO">vencido</span>{% endif %}</td>
           <td></td>
         </tr>
       {% endfor %}
     {% endif %}
   {% else %}
-    <tr><td colspan="11" class="vacio">
+    <tr><td colspan="{{ 11 if resumen.hay_minimos else 10 }}" class="vacio">
       {% if not empresas %}Todavía no hay empresas. <a href="{{ url_for('stock.empresa_form') }}">Cargá la primera empresa</a> para empezar.
       {% elif filtros.lote %}No hay stock en ningún lote que coincida con "{{ filtros.lote }}". Para ver lotes que ya salieron, buscalo en <a href="{{ url_for('stock.movimientos', producto=filtros.lote) }}">Movimientos</a>.
       {% else %}No hay productos para mostrar con estos filtros.{% endif %}
@@ -89,7 +89,7 @@
   </tbody>
 </table>
 </div>
-<p class="ayuda">Las filas en amarillo están por debajo del stock mínimo configurado en el producto.
+<p class="ayuda">{% if resumen.hay_minimos %}Las filas en amarillo están por debajo del stock mínimo configurado en el producto.{% endif %}
   "Kilos totales" es la cantidad por los kilos de cada unidad (se calcula en los productos que tienen cargados los kilos por unidad).
   "Equivale a" dice cuántos pallets completos son, en los productos que tienen cargadas las unidades por pallet.</p>
 {% endblock %}

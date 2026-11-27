@@ -2,8 +2,9 @@
 {% block titulo %}{{ 'Editar' if editando else 'Nuevo' }} producto{% endblock %}
 {% block contenido %}
 <h1>{{ 'Editar producto' if editando else 'Nuevo producto' }}</h1>
-<form method="post" class="tarjeta">
+<form method="post">
   <input type="hidden" name="volver" value="{{ volver }}">
+  <div class="tarjeta">
   <div class="grilla2">
     <div class="campo"><label>Empresa *</label>
       <select name="empresa_id" required {{ 'disabled' if editando }}>
@@ -32,17 +33,59 @@
     <div class="campo"><label>Kilos por unidad (opcional)</label>
       <input name="kilos_por_unidad" value="{{ producto.kilos_por_unidad|num if producto.kilos_por_unidad else '' }}" inputmode="decimal" placeholder="Ej.: 25 o 200">
       <div class="ayuda">Cuántos kilos pesa cada bolsa, tambor, etc. Con esto el programa calcula los kilos totales (kilos por unidad × cantidad).</div></div>
-    <div class="campo"><label>Stock mínimo (opcional)</label><input name="stock_minimo" value="{{ producto.stock_minimo|num if producto.stock_minimo else '' }}" inputmode="decimal">
-      <div class="ayuda">Si el stock baja de este número, se marca en amarillo.</div></div>
   </div>
+  <details class="campo" {{ 'open' if producto.stock_minimo }}>
+    <summary>Aviso de stock mínimo (opcional)</summary>
+    <div class="campo corto" style="margin:8px 0 4px"><label for="stock_minimo">Stock mínimo</label>
+      <input name="stock_minimo" id="stock_minimo" value="{{ producto.stock_minimo|num if producto.stock_minimo else '' }}" inputmode="decimal"></div>
+    <div class="ayuda">Si el stock baja de este número, se marca en amarillo en Stock. Si no lo usan, dejalo vacío.</div>
+  </details>
   {% if editando %}
   <label class="check campo"><input type="checkbox" name="activo" value="1" {{ 'checked' if producto.activo }}> Activo</label>
   {% endif %}
+  </div>
+
+  {% if con_stock_inicial %}
+  <div class="tarjeta" id="tarjeta-stock-inicial">
+    <h2 style="margin-top:0">Stock inicial</h2>
+    <p class="ayuda" style="margin-top:0">Lo que ya hay de este producto en el depósito, por ejemplo lo que figura en Cristal al empezar a usar
+      este programa: una fila por lote. Se guarda como un ingreso con el remito "STOCK INICIAL". Si no hay nada, dejalo vacío.</p>
+    <div class="campo corto"><label for="si_fecha">Fecha</label>
+      <input type="date" name="si_fecha" id="si_fecha" value="{{ stock_inicial.fecha }}"></div>
+    <div class="tabla">
+    <table class="stock-inicial">
+      <thead><tr><th>Lote</th><th>Vencimiento</th><th>Cantidad <span id="si-unidad"></span></th><th></th></tr></thead>
+      <tbody id="si-renglones">
+      {% for r in (stock_inicial.renglones or [{}]) %}
+        <tr>
+          <td data-etiqueta="Lote"><input name="si_lote" value="{{ r.lote or '' }}" placeholder="Sin lote" autocomplete="off" aria-label="Lote"></td>
+          <td data-etiqueta="Vencimiento"><input type="date" name="si_vencimiento" value="{{ r.vencimiento or '' }}" aria-label="Vencimiento"></td>
+          <td data-etiqueta="Cantidad"><input name="si_cantidad" value="{{ r.cantidad or '' }}" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="Cantidad">
+            <div class="conv"></div></td>
+          <td><button type="button" class="boton chico secundario quitar" title="Quitar este lote">✕</button></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      <tfoot><tr><td colspan="2">Total</td><td id="si-total">—</td><td></td></tr></tfoot>
+    </table>
+    </div>
+    <p style="margin:10px 0 0"><button type="button" class="boton secundario" id="si-agregar">+ Agregar otro lote</button></p>
+    <p class="ayuda" style="margin-bottom:0">Si un lote no tiene vencimiento, dejá la fecha vacía. Los pallets con etiqueta QR se arman después, en
+      <a href="{{ url_for('deposito.pallets_armar') }}">Pallets → Armar pallets</a>. Para cargar muchos productos de una vez está
+      <a href="{{ url_for('stock.importar') }}">Importar Excel</a>.</p>
+  </div>
+  {% elif editando %}
+  <p class="ayuda">Este producto ya tiene remitos: su stock se cambia con un
+    <a href="{{ url_for('stock.movimiento_nuevo', tipo='ingreso', empresa_id=producto.empresa_id) }}">+ Ingreso</a> o un
+    <a href="{{ url_for('stock.movimiento_nuevo', tipo='egreso', empresa_id=producto.empresa_id) }}">− Egreso</a>.</p>
+  {% endif %}
+
   <button class="boton">Guardar</button>
   <a class="boton secundario" href="{{ volver or url_for('stock.productos') }}">Cancelar</a>
 </form>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='remito.js') }}"></script>
 <script>
 (function () {
   const sel = document.getElementById('envase'), otro = document.getElementById('envase-otro');
@@ -54,6 +97,55 @@
   }
   sel.addEventListener('change', mostrar);
   mostrar();
+
+  // Stock inicial: debajo de cada cantidad, cuántos pallets son y cuántos kilos; abajo, el total.
+  const cuerpo = document.getElementById('si-renglones');
+  if (!cuerpo) return;
+  const R = window.Remito;
+  const porPallet = document.querySelector('input[name="unidades_por_pallet"]');
+  const kilos = document.querySelector('input[name="kilos_por_unidad"]');
+  const modelo = cuerpo.querySelector('tr').cloneNode(true);
+  const unidad = () => ((sel.value === '__otro__' ? otro.value : sel.value) || '').trim().toLowerCase();
+
+  function actualizar() {
+    const pp = R.leerNumero(porPallet.value), kg = R.leerNumero(kilos.value), u = unidad();
+    document.getElementById('si-unidad').textContent = u ? '(en ' + u + ')' : '';
+    let total = 0;
+    cuerpo.querySelectorAll('tr').forEach(tr => {
+      const t = R.leerNumero(tr.querySelector('input[name="si_cantidad"]').value);
+      const partes = [];
+      if (t > 0) {
+        total += t;
+        const pal = R.textoPallets(t, pp > 0 ? pp : 0, u);
+        if (pal) partes.push(pal);
+        if (kg > 0) partes.push(R.fmt(R.r3(t * kg)) + ' kg');
+      }
+      tr.querySelector('.conv').textContent = partes.join(' · ');
+    });
+    let txt = total > 0 ? R.fmt(R.r3(total)) + (u ? ' ' + u : '') : '—';
+    if (total > 0 && kg > 0) txt += ' · ' + R.fmt(R.r3(total * kg)) + ' kg';
+    document.getElementById('si-total').textContent = txt;
+  }
+  function preparar(tr) {
+    tr.querySelector('input[name="si_cantidad"]').addEventListener('input', actualizar);
+    tr.querySelector('button.quitar').addEventListener('click', () => {
+      if (cuerpo.children.length > 1) tr.remove();
+      else tr.querySelectorAll('input').forEach(i => { i.value = ''; });
+      actualizar();
+    });
+  }
+  cuerpo.querySelectorAll('tr').forEach(preparar);
+  document.getElementById('si-agregar').addEventListener('click', () => {
+    const tr = modelo.cloneNode(true);
+    tr.querySelectorAll('input').forEach(i => { i.value = ''; });
+    tr.querySelector('.conv').textContent = '';
+    cuerpo.appendChild(tr);
+    preparar(tr);
+    tr.querySelector('input').focus();
+  });
+  [porPallet, kilos, otro].forEach(i => i.addEventListener('input', actualizar));
+  sel.addEventListener('change', actualizar);
+  actualizar();
 })();
 </script>
 {% endblock %}

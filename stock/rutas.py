@@ -32,7 +32,7 @@ from . import pallets as pl
 from . import remitos as rm
 from . import vacios
 from .excel import armar_excel
-from .formato import cantidad_pallets
+from .formato import cantidad_pallets, formato_numero
 from .historial import libro_por_lote
 from .servicios import (
     CAMPOS_TRANSPORTE,
@@ -158,6 +158,8 @@ def inicio():
         "bajo_minimo": sum(
             1 for r in filas if r["activo"] and r["stock_minimo"] > 0 and r["stock"] < r["stock_minimo"]
         ),
+        # El stock mínimo es opcional: si ningún producto de la lista lo tiene, no se muestra.
+        "hay_minimos": any(r["stock_minimo"] > 0 for r in filas),
         "por_vencer": len(stock_de_lotes(empresa_id=f["empresa_id"], vence_hasta=_limite_aviso())),
         "kilos": sum(_kilos(r["stock"], r["kilos_por_unidad"]) or 0 for r in filas if r["stock"] > 0),
     }
@@ -318,6 +320,29 @@ def productos():
     )
 
 
+REMITO_STOCK_INICIAL = "STOCK INICIAL"
+
+
+def _tiene_remitos(producto_id):
+    """Si el producto ya está en algún remito que no se anuló: entonces su stock se cambia con ingresos y egresos."""
+    return get_db().execute(
+        """SELECT 1 FROM movimiento_items i JOIN movimientos m ON m.id = i.movimiento_id
+           WHERE i.producto_id = ? AND m.anulado = 0 LIMIT 1""",
+        (producto_id,),
+    ).fetchone() is not None
+
+
+def _leer_stock_inicial():
+    """Los renglones del stock inicial del formulario del producto (lote, vencimiento, cantidad), sin los vacíos."""
+    columnas = [request.form.getlist(c) for c in ("si_lote", "si_vencimiento", "si_cantidad")]
+    renglones = []
+    for n in range(max(len(c) for c in columnas)):
+        lote, vencimiento, cantidad = ((c[n] if n < len(c) else "").strip() for c in columnas)
+        if lote or vencimiento or cantidad:
+            renglones.append({"lote": lote, "vencimiento": vencimiento, "cantidad": cantidad})
+    return renglones
+
+
 @bp.route("/productos/nuevo", methods=["GET", "POST"])
 @bp.route("/productos/<int:producto_id>/editar", methods=["GET", "POST"])
 def producto_form(producto_id=None):
@@ -327,6 +352,11 @@ def producto_form(producto_id=None):
         producto = db.execute("SELECT * FROM productos WHERE id = ?", (producto_id,)).fetchone()
         if producto is None:
             abort(404)
+    volver = (request.form.get("volver") if request.method == "POST" else request.args.get("volver")) or ""
+    # El stock inicial se carga con el producto, mientras no tenga remitos. Si se crea desde un remito, no:
+    # lo que llega ya está en ese remito.
+    con_stock_inicial = not volver and not (producto and _tiene_remitos(producto_id))
+    stock_inicial = {"fecha": date.today().isoformat(), "renglones": []}
     if request.method == "POST":
         unidad = _texto("unidad")
         if unidad == "__otro__":
@@ -358,6 +388,18 @@ def producto_form(producto_id=None):
             errores.append("La descripción es obligatoria.")
         if datos["stock_minimo"] < 0:
             errores.append("El stock mínimo no puede ser negativo.")
+        items, vencimientos = {}, {}
+        if con_stock_inicial:
+            stock_inicial = {"fecha": _texto("si_fecha"), "renglones": _leer_stock_inicial()}
+        if stock_inicial["renglones"]:
+            if not _fecha_valida(stock_inicial["fecha"]):
+                errores.append("Stock inicial: la fecha no es válida.")
+            pid = producto_id or -1  # el producto nuevo todavía no tiene número
+            items, vencimientos, errores_si = rm.revisar_renglones(
+                "INGRESO", [dict(r, producto_id=pid) for r in stock_inicial["renglones"]],
+                {pid: {"id": pid, "codigo": "Stock inicial"}},
+            )
+            errores += errores_si
         if not errores:
             try:
                 if producto:
@@ -369,15 +411,28 @@ def producto_form(producto_id=None):
                          datos["activo"], datos["unidades_por_pallet"], datos["kilos_por_unidad"], producto_id),
                     )
                 else:
-                    db.execute(
+                    producto_id = db.execute(
                         """INSERT INTO productos (empresa_id, codigo, descripcion, unidad, stock_minimo, activo,
                                                  unidades_por_pallet, kilos_por_unidad)
                            VALUES (?,?,?,?,?,?,?,?)""",
                         tuple(datos.values()),
-                    )
+                    ).lastrowid
                 asegurar_envase(datos["unidad"])
+                mensaje = "Producto guardado."
+                if items:
+                    # El stock inicial queda como un ingreso del producto, con sus lotes.
+                    items = {(producto_id, lote): c for (_, lote), c in items.items()}
+                    vencimientos = {(producto_id, lote): v for (_, lote), v in vencimientos.items()}
+                    registrar_movimiento(
+                        "INGRESO", datos["empresa_id"], stock_inicial["fecha"], REMITO_STOCK_INICIAL,
+                        "Stock inicial, cargado con el producto", rm.lineas_de_ingreso(items, vencimientos),
+                    )
+                    total = sum(items.values())
+                    mensaje += (f" Stock inicial: {formato_numero(total)} {datos['unidad'].lower()} en "
+                                f"{len(items)} {'lote' if len(items) == 1 else 'lotes'} "
+                                f"(remito {REMITO_STOCK_INICIAL}).")
                 db.commit()
-                flash("Producto guardado.", "ok")
+                flash(mensaje, "ok")
                 destino = request.form.get("volver") or url_for(
                     "stock.productos", empresa_id=datos["empresa_id"]
                 )
@@ -385,22 +440,24 @@ def producto_form(producto_id=None):
                     destino = url_for("stock.productos")
                 return redirect(destino)
             except sqlite3.IntegrityError:
+                db.rollback()
+                producto_id = producto["id"] if producto else None
                 errores.append("Esa empresa ya tiene un producto con ese código.")
         for e in errores:
             flash(e, "error")
         return render_template(
-            "producto_form.html", producto=datos, editando=bool(producto),
-            empresas=_empresas(solo_activas=True), volver=request.form.get("volver", ""),
-            envases=envases(solo_activos=True),
+            "producto_form.html", producto=datos, editando=bool(producto), volver=volver,
+            empresas=_empresas(solo_activas=True), envases=envases(solo_activos=True),
+            con_stock_inicial=con_stock_inicial, stock_inicial=stock_inicial,
         )
     inicial = producto or {
         "empresa_id": _int_o_none(request.args.get("empresa_id")), "unidad": "",
         "stock_minimo": 0, "activo": 1,
     }
     return render_template(
-        "producto_form.html", producto=inicial, editando=bool(producto),
-        empresas=_empresas(solo_activas=True), volver=request.args.get("volver", ""),
-        envases=envases(solo_activos=True),
+        "producto_form.html", producto=inicial, editando=bool(producto), volver=volver,
+        empresas=_empresas(solo_activas=True), envases=envases(solo_activos=True),
+        con_stock_inicial=con_stock_inicial, stock_inicial=stock_inicial,
     )
 
 

@@ -18,9 +18,10 @@
     <button class="boton">Filtrar</button>
   </form>
 </div>
+{% set hay_minimos = productos|selectattr('stock_minimo')|list|length > 0 %}
 <div class="tabla">
 <table>
-  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th>Envase</th><th class="num">Por pallet</th><th class="num">Kg por unidad</th><th class="num">Mínimo</th><th class="num">Stock</th><th></th></tr></thead>
+  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th>Envase</th><th class="num">Por pallet</th><th class="num">Kg por unidad</th>{% if hay_minimos %}<th class="num">Mínimo</th>{% endif %}<th class="num">Stock</th><th></th></tr></thead>
   <tbody>
   {% for p in productos %}
     <tr>
@@ -30,12 +31,12 @@
       <td>{{ p.unidad }}</td>
       <td class="num">{{ p.unidades_por_pallet|num if p.unidades_por_pallet else '' }}</td>
       <td class="num">{{ p.kilos_por_unidad|num if p.kilos_por_unidad else '' }}</td>
-      <td class="num">{{ p.stock_minimo|num if p.stock_minimo else '' }}</td>
+      {% if hay_minimos %}<td class="num">{{ p.stock_minimo|num if p.stock_minimo else '' }}</td>{% endif %}
       <td class="num">{{ p.stock|num }}</td>
       <td class="num"><a class="boton chico secundario" href="{{ url_for('stock.producto_form', producto_id=p.id) }}">Editar</a></td>
     </tr>
   {% else %}
-    <tr><td colspan="9" class="vacio">No hay productos. {% if empresas %}<a href="{{ url_for('stock.producto_form', empresa_id=empresa_id) }}">Cargá uno</a>.{% else %}Primero <a href="{{ url_for('stock.empresa_form') }}">cargá una empresa</a>.{% endif %}</td></tr>
+    <tr><td colspan="{{ 9 if hay_minimos else 8 }}" class="vacio">No hay productos. {% if empresas %}<a href="{{ url_for('stock.producto_form', empresa_id=empresa_id) }}">Cargá uno</a>.{% else %}Primero <a href="{{ url_for('stock.empresa_form') }}">cargá una empresa</a>.{% endif %}</td></tr>
   {% endfor %}
   </tbody>
 </table>
