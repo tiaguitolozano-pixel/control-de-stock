@@ -1,5 +1,5 @@
 // Lo que comparten las pantallas de carga (ingreso, egreso y trasvaso): números, transporte,
-// renglones de productos (pallets + sueltas = total, kilos), saldo de pallets del cliente y fotos.
+// renglones de productos (pallets + sueltas = total, kilos), saldo de pallets y envases del cliente y fotos.
 window.Remito = (function () {
   const fmt = n => Number(n).toLocaleString('es-AR', {maximumFractionDigits: 3});
   const fmtCampo = n => Number(n).toLocaleString('es-AR', {maximumFractionDigits: 3, useGrouping: false});
@@ -267,6 +267,37 @@ window.Remito = (function () {
     return actualizar;
   }
 
+  // ---- envases vacíos y sucios del cliente (ingreso, egreso y trasvaso)
+  // Cada casillero (input.envase) tiene data-envase, data-estado (VACIO o SUCIO) y data-signo
+  // (1 si suma a lo que la empresa tiene en el depósito, -1 si resta). saldos(): {envase_id: {VACIO, SUCIO}}.
+  function envasesCliente(empresa, saldos) {
+    const inputs = [...document.querySelectorAll('input.envase')];
+    function actualizar() {
+      const porEnvase = {};
+      inputs.forEach(i => (porEnvase[i.dataset.envase] = porEnvase[i.dataset.envase] || []).push(i));
+      for (const [id, lista] of Object.entries(porEnvase)) {
+        const celda = document.getElementById('saldo-envase-' + id);
+        if (!celda) continue;
+        celda.classList.remove('negativo');
+        if (!empresa.value) { celda.textContent = ''; continue; }
+        const hay = saldos()[id] || {};
+        celda.textContent = 'De esta empresa: ' + lista.map(i => {
+          const antes = Number(hay[i.dataset.estado] || 0);
+          const mov = leerNumero(i.value);
+          let txt = (i.dataset.estado === 'VACIO' ? 'vacíos' : 'sucios') + ' hay ' + fmt(antes);
+          if (mov > 0) {
+            const queda = r3(antes + Number(i.dataset.signo) * mov);
+            txt += ' → quedan ' + fmt(queda);
+            if (queda < 0) celda.classList.add('negativo');
+          }
+          return txt;
+        }).join(' · ') + '.';
+      }
+    }
+    inputs.forEach(i => i.addEventListener('input', actualizar));
+    return actualizar;
+  }
+
   // ---- fotos: se achican en el navegador antes de mandarlas (ver static/fotos.js)
   function fotos(input, form, previa) {
     function mostrarPrevia(archivos) {
@@ -292,5 +323,5 @@ window.Remito = (function () {
     prepararFotos(input, form, mostrarPrevia);
   }
 
-  return {fmt, fmtCampo, r3, dmy, esc, leerNumero, textoPallets, transporte, tabla, insumosCliente, fotos};
+  return {fmt, fmtCampo, r3, dmy, esc, leerNumero, textoPallets, transporte, tabla, insumosCliente, envasesCliente, fotos};
 })();

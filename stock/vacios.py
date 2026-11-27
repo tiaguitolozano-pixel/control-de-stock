@@ -1,9 +1,11 @@
-"""Envases vacíos y sucios del depósito: tambores, cisternas, bidones...
+"""Envases vacíos y sucios de los clientes: tambores, cisternas, bidones...
 
-Son del depósito, no mercadería de los clientes. En los trasvasos se usan envases vacíos para envasar
-y, cuando se vacían envases que estaban en el depósito, quedan envases sucios. Se cuentan por tipo de
-envase (los que tienen marcado "vacíos y sucios" en Tipos de envase). El saldo es la suma de los
-movimientos que no están anulados y nunca puede quedar negativo.
+Son de cada cliente (empresa), no del depósito. Los vacíos entran con los ingresos (el cliente los manda
+para los trasvasos); cada trasvaso usa vacíos de la empresa y, si se vacían envases que estaban en el
+depósito, le deja sucios; los egresos devuelven vacíos o sucios. A mano se anotan los lavados, los
+descartes y los conteos. Se cuentan por empresa y tipo de envase (los tipos que tienen marcado "vacíos y
+sucios" en Tipos de envase). El saldo es la suma de los movimientos que no están anulados y nunca puede
+quedar negativo.
 """
 from collections import defaultdict
 
@@ -14,17 +16,24 @@ from .servicios import parse_numero
 ESTADOS = {"VACIO": "vacíos", "SUCIO": "sucios"}
 EPS = 1e-6
 
+# Los casilleros de cada formulario: (estado, texto, signo). El signo +1 suma al saldo del cliente y -1 resta.
+COLUMNAS = {
+    "INGRESO": [("VACIO", "Vacíos que entran", 1)],
+    "EGRESO": [("VACIO", "Vacíos que salen", -1), ("SUCIO", "Sucios que salen", -1)],
+    "TRASVASO": [("VACIO", "Vacíos que se usan", -1), ("SUCIO", "Sucios que quedan", 1)],
+}
+
 # Lo que se anota a mano en la página de envases: (texto, [(estado, signo)]). Los conteos fijan el saldo.
 ACCIONES = {
-    "ENTRAN_VACIOS": ("Entran vacíos (compra, devolución…)", [("VACIO", 1)]),
     "LAVADO": ("Se lavan sucios (pasan a vacíos)", [("SUCIO", -1), ("VACIO", 1)]),
-    "SALEN_SUCIOS": ("Salen sucios (venta, descarte, devolución…)", [("SUCIO", -1)]),
-    "SALEN_VACIOS": ("Salen vacíos (venta, préstamo…)", [("VACIO", -1)]),
-    "ENTRAN_SUCIOS": ("Entran sucios (de afuera)", [("SUCIO", 1)]),
+    "SALEN_SUCIOS": ("Salen sucios (devolución sin remito, descarte…)", [("SUCIO", -1)]),
+    "SALEN_VACIOS": ("Salen vacíos (devolución sin remito…)", [("VACIO", -1)]),
+    "ENTRAN_VACIOS": ("Entran vacíos del cliente (sin remito)", [("VACIO", 1)]),
+    "ENTRAN_SUCIOS": ("Entran sucios (sin remito)", [("SUCIO", 1)]),
     "CONTEO_VACIOS": ("Conteo: hay esta cantidad de vacíos", [("VACIO", 0)]),
     "CONTEO_SUCIOS": ("Conteo: hay esta cantidad de sucios", [("SUCIO", 0)]),
 }
-MOTIVOS = {"TRASVASO": "Trasvaso", "CONTEO": "Conteo",
+MOTIVOS = {"TRASVASO": "Trasvaso", "CONTEO": "Conteo", "INGRESO": "Ingreso", "EGRESO": "Egreso",
            **{k: v[0].split(" (")[0] for k, v in ACCIONES.items() if not k.startswith("CONTEO")}}
 
 
@@ -40,42 +49,91 @@ def palabras(nombre, estado):
     return ("las", raiz + "as") if femenino else ("los", raiz + "os")
 
 
-def saldos():
-    """{(envase_id, estado): saldo}."""
-    filas = get_db().execute(
-        "SELECT envase_id, estado, SUM(cantidad) AS saldo FROM envase_movs WHERE anulado = 0 GROUP BY envase_id, estado"
-    ).fetchall()
-    return {(r["envase_id"], r["estado"]): round(r["saldo"], 6) for r in filas}
-
-
-def tipos():
-    """Los tipos de envase que llevan vacíos y sucios, más los que tengan saldo aunque ya no los lleven.
-
-    Cada uno con su saldo de vacíos y de sucios.
-    """
-    s = saldos()
-    con_saldo = {eid for (eid, _), saldo in s.items() if abs(saldo) > EPS}
-    filas = get_db().execute("SELECT * FROM envases ORDER BY nombre").fetchall()
-    return [
-        {"id": e["id"], "nombre": e["nombre"], "lleva_vacios": e["lleva_vacios"],
-         "vacios": s.get((e["id"], "VACIO"), 0), "sucios": s.get((e["id"], "SUCIO"), 0)}
-        for e in filas
-        if (e["lleva_vacios"] and e["activo"]) or e["id"] in con_saldo
-    ]
-
-
 def campo(envase_id, estado):
     return f"env_{envase_id}_{estado}"
 
 
-def leer_formulario(form, lista):
-    """Lee del formulario del trasvaso los vacíos que se usan y los sucios que quedan.
+def _nombres():
+    return {r["id"]: r["nombre"] for r in get_db().execute("SELECT id, nombre FROM envases")}
 
-    Devuelve (renglones, errores, textos): renglones = [(envase_id, estado, cantidad)].
+
+# ----------------------------------------------------------------- saldos
+
+
+def saldos(empresa_id=None):
+    """{(empresa_id, envase_id, estado): saldo}, de una empresa o de todas."""
+    sql = """SELECT empresa_id, envase_id, estado, SUM(cantidad) AS saldo FROM envase_movs
+             WHERE anulado = 0 AND empresa_id IS NOT NULL"""
+    params = []
+    if empresa_id:
+        sql += " AND empresa_id = ?"
+        params.append(empresa_id)
+    filas = get_db().execute(sql + " GROUP BY empresa_id, envase_id, estado", params).fetchall()
+    return {(r["empresa_id"], r["envase_id"], r["estado"]): round(r["saldo"], 6) for r in filas}
+
+
+def saldos_de(empresa_id):
+    """{envase_id: {'VACIO': saldo, 'SUCIO': saldo}} de una empresa (para mostrar en los formularios)."""
+    res = defaultdict(dict)
+    for (_, envase_id, estado), saldo in saldos(empresa_id).items():
+        res[envase_id][estado] = saldo
+    return dict(res)
+
+
+def tipos_para_cargar():
+    """Los tipos de envase que llevan la cuenta de vacíos y sucios: son los casilleros de los formularios."""
+    return get_db().execute(
+        "SELECT id, nombre FROM envases WHERE lleva_vacios = 1 AND activo = 1 ORDER BY nombre"
+    ).fetchall()
+
+
+def resumen(empresa_id=None):
+    """Para mostrar: los vacíos y sucios de cada empresa por tipo de envase.
+
+    Con una empresa: todos los tipos que llevan la cuenta (aunque estén en cero) y los que tengan movimientos.
+    Sin empresa: las empresas y tipos que tuvieron movimientos.
+    """
+    db = get_db()
+    s = saldos(empresa_id)
+    sql = "SELECT DISTINCT empresa_id, envase_id FROM envase_movs WHERE anulado = 0 AND empresa_id IS NOT NULL"
+    pares = {(r[0], r[1]) for r in db.execute(sql + (" AND empresa_id = ?" if empresa_id else ""),
+                                              [empresa_id] if empresa_id else [])}
+    if empresa_id:
+        pares |= {(empresa_id, r["id"]) for r in tipos_para_cargar()}
+    envases = _nombres()
+    empresas = {r["id"]: r["nombre"] for r in db.execute("SELECT id, nombre FROM empresas")}
+    filas = [
+        {"empresa_id": emp, "empresa": empresas.get(emp, "?"), "envase_id": eid, "nombre": envases[eid],
+         "vacios": s.get((emp, eid, "VACIO"), 0), "sucios": s.get((emp, eid, "SUCIO"), 0)}
+        for emp, eid in pares
+    ]
+    return sorted(filas, key=lambda r: (r["empresa"].lower(), r["nombre"].lower()))
+
+
+def totales_por_tipo(empresa_id=None):
+    """[(texto, saldo)] de los envases de clientes que hay en el depósito (para el resumen del stock)."""
+    suma = defaultdict(float)
+    for (_, envase_id, estado), saldo in saldos(empresa_id).items():
+        suma[(envase_id, estado)] += saldo
+    nombres = _nombres()
+    return sorted(
+        (f"{nombres[eid]} {palabras(nombres[eid], estado)[1]}", round(saldo, 6))
+        for (eid, estado), saldo in suma.items() if abs(saldo) > EPS
+    )
+
+
+# ------------------------------------------------- formularios: remitos y trasvasos
+
+
+def leer_formulario(form, modo):
+    """Lee los casilleros de envases de un formulario (modo INGRESO, EGRESO o TRASVASO).
+
+    Devuelve (renglones, errores, textos): renglones = [(envase_id, estado, cantidad)], con la cantidad
+    siempre positiva; textos guarda lo escrito, para volver a mostrar el formulario si hay errores.
     """
     renglones, errores, textos = [], [], {}
-    for e in lista:
-        for estado in ESTADOS:
+    for e in tipos_para_cargar():
+        for estado, _, _ in COLUMNAS[modo]:
             nombre = campo(e["id"], estado)
             texto = (form.get(nombre) or "").strip()
             if not texto:
@@ -90,45 +148,64 @@ def leer_formulario(form, lista):
     return renglones, errores, textos
 
 
-def _nombres():
-    return {r["id"]: r["nombre"] for r in get_db().execute("SELECT id, nombre FROM envases")}
+def _con_signo(modo, renglones):
+    signos = {estado: signo for estado, _, signo in COLUMNAS[modo]}
+    return [(eid, estado, signos[estado] * cantidad) for eid, estado, cantidad in renglones]
 
 
-def chequear(renglones):
-    """Los vacíos que se usan no pueden ser más de los que hay."""
-    s, nombres, errores = saldos(), _nombres(), []
-    for envase_id, estado, cantidad in renglones:
-        hay = s.get((envase_id, "VACIO"), 0)
-        if estado == "VACIO" and cantidad > hay + EPS:
+def chequear(empresa_id, modo, renglones):
+    """Lo que sale (los vacíos de un trasvaso, los vacíos y sucios de un egreso) no puede ser más de lo que
+    la empresa tiene en el depósito."""
+    s, nombres, errores = saldos(empresa_id), _nombres(), []
+    salen = defaultdict(float)
+    for eid, estado, cantidad in _con_signo(modo, renglones):
+        if cantidad < 0:
+            salen[(eid, estado)] -= cantidad
+    for (eid, estado), cantidad in salen.items():
+        hay = s.get((empresa_id, eid, estado), 0)
+        if cantidad > hay + EPS:
+            nombre = nombres[eid]
+            ayuda = ("Si el cliente mandó vacíos que no están cargados, cargalos primero con un ingreso "
+                     "(en + Ingreso, apartado Envases vacíos del cliente)" if estado == "VACIO"
+                     else "Si el número no está al día")
             errores.append(
-                f"{nombres[envase_id]} {palabras(nombres[envase_id], 'VACIO')[1]}: en el depósito hay {_n(hay)} "
-                f"y querés usar {_n(cantidad)}. "
-                "Si el número no está al día, corregilo en Trasvasos → Envases vacíos y sucios (con un conteo)."
+                f"{nombre} {palabras(nombre, estado)[1]}: esta empresa tiene {_n(hay)} en el depósito y querés "
+                f"{'usar' if modo == 'TRASVASO' else 'sacar'} {_n(cantidad)}. {ayuda}, o corregilo con un conteo "
+                "en Trasvasos → Envases vacíos y sucios."
             )
     return errores
 
 
-def registrar_trasvaso(trasvaso_id, fecha, renglones):
-    """Los vacíos que se usan salen y los sucios que quedan entran. No hace commit."""
+def registrar(empresa_id, fecha, modo, renglones, trasvaso_id=None, movimiento_id=None):
+    """Anota los envases de un trasvaso o de un remito (ingreso o egreso). No hace commit."""
     get_db().executemany(
-        """INSERT INTO envase_movs (envase_id, estado, cantidad, motivo, fecha, trasvaso_id)
-           VALUES (?,?,?,'TRASVASO',?,?)""",
-        [(eid, estado, -cant if estado == "VACIO" else cant, fecha, trasvaso_id)
-         for eid, estado, cant in renglones],
+        """INSERT INTO envase_movs (empresa_id, envase_id, estado, cantidad, motivo, fecha, trasvaso_id, movimiento_id)
+           VALUES (?,?,?,?,?,?,?,?)""",
+        [(empresa_id, eid, estado, cantidad, modo, fecha, trasvaso_id, movimiento_id)
+         for eid, estado, cantidad in _con_signo(modo, renglones)],
     )
+
+
+def _por_tipo(condicion, valor, signo_vacios):
+    filas = get_db().execute(
+        f"""SELECT v.nombre,
+                   {signo_vacios} * SUM(CASE WHEN m.estado = 'VACIO' THEN m.cantidad ELSE 0 END) AS vacios,
+                   ABS(SUM(CASE WHEN m.estado = 'SUCIO' THEN m.cantidad ELSE 0 END)) AS sucios
+            FROM envase_movs m JOIN envases v ON v.id = m.envase_id
+            WHERE {condicion} = ? GROUP BY v.id ORDER BY v.nombre""",
+        (valor,),
+    ).fetchall()
+    return [dict(r) for r in filas]
 
 
 def de_trasvaso(trasvaso_id):
     """[{nombre, vacios, sucios}]: los vacíos que se usaron y los sucios que quedaron en un trasvaso."""
-    filas = get_db().execute(
-        """SELECT v.nombre,
-                  SUM(CASE WHEN m.estado = 'VACIO' THEN -m.cantidad ELSE 0 END) AS vacios,
-                  SUM(CASE WHEN m.estado = 'SUCIO' THEN m.cantidad ELSE 0 END) AS sucios
-           FROM envase_movs m JOIN envases v ON v.id = m.envase_id
-           WHERE m.trasvaso_id = ? GROUP BY v.id ORDER BY v.nombre""",
-        (trasvaso_id,),
-    ).fetchall()
-    return [dict(r) for r in filas]
+    return _por_tipo("m.trasvaso_id", trasvaso_id, -1)
+
+
+def de_movimiento(movimiento_id):
+    """[{nombre, vacios, sucios}]: los envases que entraron (ingreso) o salieron (egreso) con un remito."""
+    return [{**r, "vacios": abs(r["vacios"])} for r in _por_tipo("m.movimiento_id", movimiento_id, 1)]
 
 
 def de_trasvasos(trasvaso_ids):
@@ -151,66 +228,87 @@ def de_trasvasos(trasvaso_ids):
     return res
 
 
-def problemas_al_anular(trasvaso_id):
-    """Al anular un trasvaso vuelven los vacíos y se van los sucios: los sucios no pueden quedar negativos."""
-    s, problemas = saldos(), []
-    for r in get_db().execute(
-        """SELECT m.envase_id, v.nombre, SUM(m.cantidad) AS cantidad FROM envase_movs m
-           JOIN envases v ON v.id = m.envase_id
-           WHERE m.trasvaso_id = ? AND m.estado = 'SUCIO' AND m.anulado = 0 GROUP BY m.envase_id""",
-        (trasvaso_id,),
-    ):
-        hay = s.get((r["envase_id"], "SUCIO"), 0)
+def problemas_al_anular(trasvaso_id=None, movimiento_id=None):
+    """Al anular un trasvaso o un remito se deshacen sus envases: ningún saldo puede quedar negativo.
+
+    Por ejemplo, los sucios que dejó un trasvaso ya lavados, o los vacíos de un ingreso ya usados en un trasvaso.
+    """
+    columna, valor = ("trasvaso_id", trasvaso_id) if trasvaso_id else ("movimiento_id", movimiento_id)
+    filas = get_db().execute(
+        f"""SELECT m.empresa_id, m.envase_id, m.estado, v.nombre, SUM(m.cantidad) AS cantidad
+            FROM envase_movs m JOIN envases v ON v.id = m.envase_id
+            WHERE m.{columna} = ? AND m.anulado = 0 GROUP BY m.empresa_id, m.envase_id, m.estado""",
+        (valor,),
+    ).fetchall()
+    problemas = []
+    for r in filas:
+        if r["cantidad"] <= EPS:
+            continue  # lo que había salido vuelve: nunca deja nada en negativo
+        hay = saldos(r["empresa_id"]).get((r["empresa_id"], r["envase_id"], r["estado"]), 0)
         if hay - r["cantidad"] < -EPS:
-            articulo, sucios = palabras(r["nombre"], "SUCIO")
+            articulo, adjetivo = palabras(r["nombre"], r["estado"])
+            origen = "este trasvaso dejó" if trasvaso_id else "este remito trajo"
+            causa = "lavado o sacado" if r["estado"] == "SUCIO" else "usado en un trasvaso o sacado"
             problemas.append(
-                f"{articulo} {r['nombre'].lower()} {sucios} quedarían en negativo (hay {_n(hay)} y este trasvaso dejó "
-                f"{_n(r['cantidad'])}; puede que ya se hayan lavado o sacado)"
+                f"{articulo} {r['nombre'].lower()} {adjetivo} de esta empresa quedarían en negativo (hay {_n(hay)} "
+                f"y {origen} {_n(r['cantidad'])}; puede que ya se hayan {causa})"
             )
     return problemas
 
 
-def anular_trasvaso(trasvaso_id):
-    """No hace commit."""
-    get_db().execute("UPDATE envase_movs SET anulado = 1 WHERE trasvaso_id = ?", (trasvaso_id,))
+def anular(trasvaso_id=None, movimiento_id=None):
+    """Deshace los envases de un trasvaso o de un remito. No hace commit."""
+    columna, valor = ("trasvaso_id", trasvaso_id) if trasvaso_id else ("movimiento_id", movimiento_id)
+    get_db().execute(f"UPDATE envase_movs SET anulado = 1 WHERE {columna} = ?", (valor,))
 
 
-def registrar_accion(envase_id, accion, cantidad, fecha, observaciones=""):
-    """Anota un movimiento hecho a mano (compra, lavado, venta, conteo...). Devuelve un error o None.
+# ------------------------------------------------- página de envases (a mano)
+
+
+def tipos_para_anotar():
+    """Los tipos que se pueden elegir al anotar a mano: los que llevan la cuenta y los que tienen saldo."""
+    con_saldo = {eid for (_, eid, _), saldo in saldos().items() if abs(saldo) > EPS}
+    return [r for r in get_db().execute("SELECT id, nombre, lleva_vacios, activo FROM envases ORDER BY nombre")
+            if (r["lleva_vacios"] and r["activo"]) or r["id"] in con_saldo]
+
+
+def registrar_accion(empresa_id, envase_id, accion, cantidad, fecha, observaciones=""):
+    """Anota un movimiento hecho a mano (lavado, devolución, descarte, conteo...). Devuelve un error o None.
 
     No hace commit.
     """
+    db = get_db()
+    if not empresa_id or db.execute("SELECT 1 FROM empresas WHERE id = ?", (empresa_id,)).fetchone() is None:
+        return "Elegí la empresa (de quién son los envases)."
     if accion not in ACCIONES:
         return "Elegí qué pasó con los envases."
-    envase = get_db().execute("SELECT * FROM envases WHERE id = ?", (envase_id,)).fetchone()
+    envase = db.execute("SELECT * FROM envases WHERE id = ?", (envase_id,)).fetchone()
     if envase is None:
         return "Elegí el tipo de envase."
     if cantidad is None or cantidad < 0 or (cantidad <= EPS and not accion.startswith("CONTEO")):
         return "La cantidad tiene que ser un número mayor a cero."
-    s = saldos()
+    s = saldos(empresa_id)
     nombre = envase["nombre"].lower()
     filas = []
     if accion.startswith("CONTEO"):
         estado = ACCIONES[accion][1][0][0]
-        diferencia = round(cantidad - s.get((envase_id, estado), 0), 6)
+        diferencia = round(cantidad - s.get((empresa_id, envase_id, estado), 0), 6)
         if abs(diferencia) <= EPS:
             return f"Ya figuran {_n(cantidad)} {nombre} {palabras(nombre, estado)[1]}: no hay nada que corregir."
         filas.append((estado, diferencia, "CONTEO"))
     else:
         for estado, signo in ACCIONES[accion][1]:
-            hay = s.get((envase_id, estado), 0)
+            hay = s.get((empresa_id, envase_id, estado), 0)
             if signo < 0 and cantidad > hay + EPS:
-                return (f"En el depósito hay {_n(hay)} {nombre} {palabras(nombre, estado)[1]} "
-                        f"y querés sacar {_n(cantidad)}. "
-                        "Si el número no está al día, primero cargá un conteo.")
+                return (f"Esta empresa tiene {_n(hay)} {nombre} {palabras(nombre, estado)[1]} en el depósito "
+                        f"y querés sacar {_n(cantidad)}. Si el número no está al día, primero cargá un conteo.")
             filas.append((estado, signo * cantidad, accion))
-    db = get_db()
     grupo = None
     for estado, cant, motivo in filas:
         cur = db.execute(
-            """INSERT INTO envase_movs (envase_id, estado, cantidad, motivo, fecha, grupo, observaciones)
-               VALUES (?,?,?,?,?,?,?)""",
-            (envase_id, estado, cant, motivo, fecha, grupo, observaciones or None),
+            """INSERT INTO envase_movs (empresa_id, envase_id, estado, cantidad, motivo, fecha, grupo, observaciones)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (empresa_id, envase_id, estado, cant, motivo, fecha, grupo, observaciones or None),
         )
         if grupo is None:
             grupo = cur.lastrowid
@@ -218,16 +316,21 @@ def registrar_accion(envase_id, accion, cantidad, fecha, observaciones=""):
     return None
 
 
-def historial(limite=300):
+def historial(empresa_id=None, limite=300):
     """Los últimos movimientos de envases, los más nuevos primero (un renglón por envase y anotación)."""
+    filtro, params = ("WHERE m.empresa_id = ?", [empresa_id]) if empresa_id else ("", [])
     return get_db().execute(
-        """SELECT MIN(m.fecha) AS fecha, v.nombre, m.motivo, m.trasvaso_id, t.orden, MAX(m.observaciones) AS observaciones,
-                  MAX(m.anulado) AS anulado,
-                  SUM(CASE WHEN m.estado = 'VACIO' THEN m.cantidad ELSE 0 END) AS vacios,
-                  SUM(CASE WHEN m.estado = 'SUCIO' THEN m.cantidad ELSE 0 END) AS sucios
-           FROM envase_movs m JOIN envases v ON v.id = m.envase_id
-           LEFT JOIN trasvasos t ON t.id = m.trasvaso_id
-           GROUP BY COALESCE('g' || m.grupo, 't' || m.trasvaso_id || '-' || m.envase_id, 'm' || m.id)
-           ORDER BY MAX(m.id) DESC LIMIT ?""",
-        (limite,),
+        f"""SELECT MIN(m.fecha) AS fecha, e.nombre AS empresa, v.nombre, m.motivo, m.trasvaso_id, t.orden,
+                   m.movimiento_id, mv.remito, MAX(m.observaciones) AS observaciones, MAX(m.anulado) AS anulado,
+                   SUM(CASE WHEN m.estado = 'VACIO' THEN m.cantidad ELSE 0 END) AS vacios,
+                   SUM(CASE WHEN m.estado = 'SUCIO' THEN m.cantidad ELSE 0 END) AS sucios
+            FROM envase_movs m JOIN envases v ON v.id = m.envase_id
+            LEFT JOIN empresas e ON e.id = m.empresa_id
+            LEFT JOIN trasvasos t ON t.id = m.trasvaso_id
+            LEFT JOIN movimientos mv ON mv.id = m.movimiento_id
+            {filtro}
+            GROUP BY COALESCE('g' || m.grupo, 't' || m.trasvaso_id || '-' || m.envase_id,
+                              'r' || m.movimiento_id || '-' || m.envase_id, 'm' || m.id)
+            ORDER BY MAX(m.id) DESC LIMIT ?""",
+        (*params, limite),
     ).fetchall()

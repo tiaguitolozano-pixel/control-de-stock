@@ -7,6 +7,7 @@ from collections import defaultdict
 
 from . import insumos as ins
 from . import pallets as pl
+from . import vacios
 from .db import get_db, stock_de_lotes, stock_por_lote_id
 from .servicios import chequear_lote, obtener_o_crear_lote, parse_fecha, parse_numero
 
@@ -161,4 +162,9 @@ def problema_al_anular_ingreso(movimiento, vuelve=None):
     if problemas:
         return ("No se puede anular: " + "; ".join(problemas)
                 + ". Primero anulá los egresos que sacaron esos pallets.")
+    problemas = vacios.problemas_al_anular(movimiento_id=movimiento_id)
+    if problemas:
+        return ("No se puede anular: " + "; ".join(problemas)
+                + ". Primero anulá los trasvasos o egresos que los usaron, o corregí los envases en "
+                "Trasvasos → Envases vacíos y sucios.")
     return None

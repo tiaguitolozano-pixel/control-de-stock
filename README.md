@@ -25,6 +25,9 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
   - **Insumos adicionales** de cada remito: pallets (propios o del cliente), film stretch y los que se agreguen.
     Los pallets del cliente llevan saldo por empresa (no pueden salir más de los que hay); los propios y el film
     solo quedan anotados. Puede haber remitos solo de insumos, por ejemplo una devolución de pallets.
+  - **Envases vacíos del cliente**: en un ingreso, los tambores, cisternas, etc. vacíos que manda el cliente para
+    los trasvasos; en un egreso, los vacíos o sucios que se le devuelven. Llevan saldo por empresa (no pueden salir
+    más de los que tiene en el depósito) y puede haber remitos solo de envases.
   - **Fotos** en las observaciones del remito (la mercadería al llegar, un daño, el camión cargado, el precinto…).
     Se eligen debajo de la observación general, se achican solas antes de guardarse y se pueden agregar más
     después, desde el remito. En el historial, al lado de la observación, se ve cuántas fotos tiene cada remito.
@@ -34,7 +37,8 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
 - **Trasvasos**: pasar un producto de un envase a otro por orden del cliente (descargar un isotanque del puerto en
   tambores o cisternas, pasar cisternas a tambores o al revés). Se cargan como un ingreso, con el número de orden, de
   dónde sale el producto (de afuera o del stock del depósito), los envases vacíos que se usan y los sucios que quedan.
-  Lleva el stock de **envases vacíos y sucios** del depósito. Ver [Trasvasos](#trasvasos).
+  Lleva la cuenta de los **envases vacíos y sucios de cada cliente**: cada trasvaso usa sus vacíos y le deja los
+  sucios. Ver [Trasvasos](#trasvasos).
 - **Stock actual** por empresa y producto, con aviso en amarillo cuando está por debajo del mínimo
   y la fecha de vencimiento más próxima. Se puede abrir el detalle por lote debajo de cada código y buscar por lote.
 - **Stock por lote**, con los vencidos en rojo y los que vencen en los próximos 60 días en amarillo.
@@ -45,7 +49,7 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
   hacia abajo (primero lo más viejo) y separado por producto y lote: cada producto muestra su cantidad general y,
   debajo, los movimientos de cada lote con el saldo del lote después de cada remito (en cantidad y en kilos).
   Arriba, los totales por tipo de envase y en kilos. Filtros por empresa, tipo, fechas, remito, producto/lote y
-  transporte (chofer, patente o contenedor). Abajo, los insumos adicionales de esos remitos.
+  transporte (chofer, patente o contenedor). Abajo, los insumos adicionales y los envases del cliente de esos remitos.
 - **Exportar a Excel** el stock y los movimientos (respeta los filtros), e imprimir.
 - **Pallets con etiqueta QR**: al cargar un ingreso se arman solos los pallets (completos y uno con lo que sobra)
   y se imprimen sus etiquetas en hojas A4. Cada pallet sabe qué tiene (producto, lote, vencimiento y cantidad),
@@ -106,8 +110,10 @@ Cantidad) y subirla. Las columnas Envase, Por pallet, Kilos por unidad, Lote y V
 solo con esos pallets en **Insumos adicionales → Pallets del cliente** (remito "Saldo inicial"). Los saldos de cada
 empresa se ven en **Stock → Pallets de clientes en el depósito**.
 
-**Envases vacíos y sucios:** antes del primer trasvaso, cargar cuántos tambores, cisternas, etc. vacíos y sucios hay
-hoy en el depósito: en **Trasvasos → Envases vacíos y sucios**, elegir **Conteo** y escribir la cantidad de cada uno.
+**Envases vacíos y sucios de los clientes:** si una empresa ya tiene tambores, cisternas, etc. en el depósito,
+cargarlos antes de su primer trasvaso: en **Trasvasos → Envases vacíos y sucios**, elegir la empresa, **Conteo** y
+escribir cuántos vacíos y cuántos sucios tiene de cada tipo. Los vacíos también se pueden cargar con un ingreso de
+esa empresa solo con esos envases (apartado **Envases vacíos del cliente**, remito "Saldo inicial").
 
 **Opción a mano:**
 1. **Empresas → Nueva empresa**: cargar las empresas clientes.
@@ -129,9 +135,9 @@ fotos, insumos adicionales), con estas diferencias:
 - **Destino**: cómo queda envasado (producto, lote, vencimiento, cantidad). Entra al stock como un ingreso y se
   arman sus pallets con etiqueta. Si sale de un solo lote del depósito, el lote y el vencimiento se completan solos.
   Debajo se ve la comparación de kilos: origen, envasado y diferencia.
-- **Envases vacíos y sucios**: los vacíos que se usan (se completan solos con lo envasado) y los sucios que quedan
-  (con lo que se vació del depósito). Se pueden cambiar a mano, por ejemplo si el cliente trajo sus envases.
-  No deja usar más vacíos de los que hay.
+- **Envases vacíos y sucios del cliente**: los vacíos que se usan (se completan solos con lo envasado) y los sucios
+  que quedan (con lo que se vació del depósito). Se pueden cambiar a mano. Al lado de cada tipo se ve cuántos tiene
+  la empresa en el depósito, y no deja usar más vacíos de los que tiene.
 
 Al guardar quedan dos remitos con el número "Orden …": el ingreso de lo envasado y, si salió del depósito, el
 egreso de lo que se vació. Aparecen en el historial de movimientos con la marca *trasvaso*. La lista de trasvasos
@@ -140,13 +146,23 @@ remitos sueltos): vuelve todo a como estaba, incluidos los envases.
 
 ### Envases vacíos y sucios
 
-Son del depósito, no de los clientes. En **Trasvasos → Envases vacíos y sucios** se ve cuántos hay de cada tipo y se
-anota lo que no es un trasvaso: compras o devoluciones de vacíos, lavados (los sucios pasan a vacíos), ventas o
-descartes. Para cargar lo que ya hay hoy, o corregir después de contar, se usa **Conteo**: se escribe cuántos hay
-de verdad y el programa anota la diferencia.
+Son de cada cliente: el depósito se los guarda. Los vacíos que manda el cliente entran con un **+ Ingreso** (apartado
+**Envases vacíos del cliente**; el remito puede tener solo envases). Cada trasvaso usa los vacíos de esa empresa y le
+deja los sucios de lo que se vació. Los que vuelven al cliente, vacíos o sucios, salen con un **− Egreso** (apartado
+**Envases que se devuelven al cliente**). No pueden usarse ni salir más de los que la empresa tiene en el depósito.
+
+En **Trasvasos → Envases vacíos y sucios** se ve cuántos tiene cada empresa (se puede ver una sola) y se anota lo que
+no lleva remito: lavados (los sucios pasan a vacíos), descartes o devoluciones sin remito. Para cargar lo que una
+empresa ya tiene, o corregir después de contar, se usa **Conteo**: se escribe cuántos hay de verdad y el programa
+anota la diferencia. En **Stock** se ven los totales (de todos los clientes, o de la empresa elegida), y en la
+lista de trasvasos, al elegir una empresa, sus vacíos y sucios.
 
 Qué tipos de envase llevan esta cuenta se elige en **Productos → Tipos de envase** (columna "Vacíos y sucios").
 Al actualizar a esta versión quedan marcados los tambores, cisternas, bidones y contenedores IBC.
+
+En la primera versión de trasvasos los envases eran del depósito. Al actualizar, los de cada trasvaso pasan a su
+empresa, y los conteos y movimientos anotados a mano quedan anulados (no se sabe de qué cliente eran): hay que
+cargarlos de nuevo para cada empresa.
 
 ## Pallets, etiquetas y ubicaciones
 
@@ -203,8 +219,9 @@ El teclado de la pantalla queda escondido para que no tape; con el botón ⌨ se
   `templates/` el HTML, `static/remito.js` el formulario de remito (renglones, pallets, kilos, transporte, insumos y
   fotos; lo usan el ingreso, el egreso y el trasvaso) y `static/fotos.js` el achicado de las fotos en el navegador.
 - Un trasvaso es una fila de `trasvasos` más uno o dos `movimientos` con `trasvaso_id` (el ingreso y, si sale del
-  depósito, el egreso). Los envases vacíos y sucios son movimientos en `envase_movs`: el saldo es la suma de los
-  que no están anulados, igual que el stock.
+  depósito, el egreso). Los envases vacíos y sucios son movimientos en `envase_movs` con su `empresa_id` (y
+  `trasvaso_id` o `movimiento_id` si vienen de un trasvaso o de un remito): el saldo de cada empresa es la suma de
+  los que no están anulados, igual que el stock.
 - Los kilos no se guardan en los remitos: siempre se calculan con los kilos por unidad actuales del producto.
 - Lo que tiene cada pallet sale de los movimientos de la tabla `pallet_movs` (nunca se pisa un saldo), así que
   anular un egreso devuelve sola la mercadería a sus pallets.

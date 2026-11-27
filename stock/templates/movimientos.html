@@ -67,11 +67,11 @@
 {% if cantidad_renglones >= limite %}<p class="ayuda">Se muestran los últimos {{ limite|num }} renglones (los totales de arriba sí cuentan todo). Usá los filtros para acotar.</p>{% endif %}
 
 {% if insumos %}
-<h2 id="insumos">Insumos adicionales</h2>
+<h2 id="insumos">{{ 'Insumos adicionales y envases del cliente' if hay_envases else 'Insumos adicionales' }}</h2>
 <div class="totales">
   {% for t in totales_insumos %}
   <div class="tarjeta">
-    <div class="etiqueta">{{ t.nombre }} ({{ t.unidad }})</div>
+    <div class="etiqueta">{{ t.nombre }}{% if t.unidad %} ({{ t.unidad }}){% endif %}</div>
     <div class="fila-total"><span>En ingresos</span><strong class="debe">{{ t.entran|num }}</strong></div>
     <div class="fila-total"><span>En egresos</span><strong class="haber">{{ t.salen|num }}</strong></div>
   </div>
@@ -79,7 +79,7 @@
 </div>
 <div class="tabla">
 <table>
-  <thead><tr><th>Fecha</th><th>Remito</th><th>Empresa</th><th>Insumo</th><th class="num debe">En ingresos</th><th class="num haber">En egresos</th><th>Unidad</th></tr></thead>
+  <thead><tr><th>Fecha</th><th>Remito</th><th>Empresa</th><th>{{ 'Insumo o envase' if hay_envases else 'Insumo' }}</th><th class="num debe">En ingresos</th><th class="num haber">En egresos</th><th>Unidad</th></tr></thead>
   <tbody>
   {% for r in insumos %}
     <tr class="{{ 'anulado' if r.anulado }}">
@@ -95,6 +95,7 @@
   </tbody>
 </table>
 </div>
-<p class="ayuda">Los pallets del cliente llevan saldo: el de cada empresa está en <a href="{{ url_for('stock.insumos_lista') }}">Insumos</a>.</p>
+<p class="ayuda">Los pallets del cliente llevan saldo: el de cada empresa está en <a href="{{ url_for('stock.insumos_lista') }}">Insumos</a>.
+  {%- if hay_envases %} Los envases vacíos y sucios de cada cliente, en <a href="{{ url_for('trasvasos.envases_vacios', empresa_id=filtros.empresa_id) }}">Envases vacíos y sucios</a>.{% endif %}</p>
 {% endif %}
 {% endblock %}

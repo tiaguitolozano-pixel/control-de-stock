@@ -25,10 +25,15 @@
 {% if items %}
 {{ partes.tabla_items(items, totales) }}
 {% else %}
-<div class="tarjeta ayuda">Este remito no tiene productos: es solo de insumos.</div>
+<div class="tarjeta ayuda">Este remito no tiene productos: es solo de {{ 'insumos' if insumos and not envases else ('envases' if envases and not insumos else 'insumos y envases') }}.</div>
 {% endif %}
 {% if insumos %}
 {{ partes.tabla_insumos(insumos, nombre_insumo) }}
+{% endif %}
+{% if envases %}
+{% if m.tipo == 'INGRESO' %}{{ partes.tabla_envases(envases, 'Envases vacíos del cliente', 'Vacíos que entraron', '') }}
+{% else %}{{ partes.tabla_envases(envases, 'Envases que se devolvieron al cliente', 'Vacíos', 'Sucios') }}{% endif %}
+<p class="ayuda">Lo que cada empresa tiene en el depósito está en <a href="{{ url_for('trasvasos.envases_vacios', empresa_id=m.empresa_id) }}">Envases vacíos y sucios</a>.</p>
 {% endif %}
 {% if armados %}
 {{ partes.tabla_armados(armados, 'Pallets armados con este remito') }}
@@ -50,7 +55,7 @@
 {% endif %}
 <div class="acciones" style="margin-top:16px">
   {% if armados %}<a class="boton verde" href="{{ url_for('deposito.etiquetas_pallets', movimiento_id=m.id) }}" target="_blank">🖨 Imprimir etiquetas de los pallets</a>{% endif %}
-  {% if m.tipo == 'INGRESO' and not armados and not m.anulado %}<a class="boton secundario" href="{{ url_for('deposito.pallets_armar', empresa_id=m.empresa_id) }}">Armar pallets con etiqueta</a>{% endif %}
+  {% if m.tipo == 'INGRESO' and items and not armados and not m.anulado %}<a class="boton secundario" href="{{ url_for('deposito.pallets_armar', empresa_id=m.empresa_id) }}">Armar pallets con etiqueta</a>{% endif %}
   <button class="boton secundario" onclick="window.print()">🖨 Imprimir</button>
   <a class="boton secundario" href="{{ url_for('stock.movimiento_nuevo', tipo=m.tipo|lower, empresa_id=m.empresa_id) }}">Cargar otro {{ tipos[m.tipo]|lower }}</a>
   <a class="boton secundario" href="{{ url_for('stock.movimientos') }}">Volver al historial</a>

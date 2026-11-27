@@ -96,3 +96,19 @@
 </table>
 </div>
 {% endmacro %}
+
+{#- Los envases vacíos y sucios del cliente de un remito o de un trasvaso: [{nombre, vacios, sucios}]. -#}
+{% macro tabla_envases(envases, titulo, texto_vacios, texto_sucios) %}
+<h2>{{ titulo }}</h2>
+<div class="tabla">
+<table>
+  <thead><tr><th>Tipo de envase</th><th class="num">{{ texto_vacios }}</th>{% if texto_sucios %}<th class="num">{{ texto_sucios }}</th>{% endif %}</tr></thead>
+  <tbody>
+  {% for e in envases %}
+    <tr><td>{{ e.nombre }}</td><td class="num">{{ e.vacios|num if e.vacios else '' }}</td>
+      {% if texto_sucios %}<td class="num">{{ e.sucios|num if e.sucios else '' }}</td>{% endif %}</tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endmacro %}

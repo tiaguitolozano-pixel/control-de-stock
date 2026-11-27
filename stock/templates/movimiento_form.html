@@ -43,6 +43,8 @@
 
   {{ campos.insumos_adicionales(insumos, campos_insumo, textos_insumos) }}
 
+  {% if envases %}{{ campos.envases_cliente(envases, campo_envase, textos_envases, columnas_envases, tipo) }}{% endif %}
+
   {% if tipo == 'INGRESO' %}
   <div class="tarjeta">
     <h2 style="margin-top:0">Opciones</h2>
@@ -78,6 +80,7 @@
   const esEgreso = {{ 'true' if tipo == 'EGRESO' else 'false' }};
   let productos = [];
   let saldosInsumos = {};
+  let saldosEnvases = {};
 
   R.transporte({{ previos|tojson }});
   const tabla = R.tabla({
@@ -86,23 +89,27 @@
     totalCantidades: document.getElementById('total-cantidades'), totalKilos: document.getElementById('total-kilos'),
   });
   const actualizarSaldosInsumos = R.insumosCliente(empresa, esEgreso, () => saldosInsumos);
+  const actualizarSaldosEnvases = R.envasesCliente(empresa, () => saldosEnvases);
 
   async function cargarProductos(conservar) {
     const id = empresa.value;
     linkNuevo.href = '{{ url_for("stock.producto_form") }}?empresa_id=' + id + '&volver=' + encodeURIComponent(location.pathname + '?empresa_id=' + id);
-    if (!id) { productos = []; saldosInsumos = {}; aviso.style.display = ''; }
+    if (!id) { productos = []; saldosInsumos = {}; saldosEnvases = {}; aviso.style.display = ''; }
     else {
-      const [r, rs] = await Promise.all([
+      const [r, rs, re] = await Promise.all([
         fetch('{{ url_for("stock.api_productos") }}?empresa_id=' + id),
         fetch('{{ url_for("stock.api_insumos") }}?empresa_id=' + id),
+        fetch('{{ url_for("trasvasos.api_envases") }}?empresa_id=' + id),
       ]);
       productos = await r.json();
       saldosInsumos = await rs.json();
+      saldosEnvases = await re.json();
       aviso.style.display = productos.length ? 'none' : '';
       aviso.textContent = productos.length ? '' : 'Esta empresa todavía no tiene productos. Crealos con el enlace de arriba.';
     }
     tabla.cargar(conservar);
     actualizarSaldosInsumos();
+    actualizarSaldosEnvases();
   }
 
   R.fotos(document.getElementById('fotos'), form, document.getElementById('fotos-previa'));

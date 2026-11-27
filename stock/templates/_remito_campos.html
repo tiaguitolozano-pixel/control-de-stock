@@ -85,3 +85,39 @@
     </table>
     </div>
 {% endmacro %}
+
+{#- Los envases vacíos y sucios del cliente. modo: INGRESO (entran los vacíos que manda el cliente),
+    EGRESO (se le devuelven vacíos o sucios) o TRASVASO (se usan vacíos y le quedan sucios).
+    columnas: [(estado, texto, signo)], ver vacios.COLUMNAS. El saldo de la empresa lo completa remito.js. -#}
+{% macro envases_cliente(envases, campo_envase, textos_envases, columnas, modo) %}
+  <div class="tarjeta" id="tarjeta-envases">
+    <h2 style="margin-top:0">{{ {'INGRESO': 'Envases vacíos del cliente', 'EGRESO': 'Envases que se devuelven al cliente',
+                                 'TRASVASO': 'Envases vacíos y sucios del cliente'}[modo] }}</h2>
+    {% if envases %}
+    <table class="insumos">
+      {% for e in envases %}
+      <tr>
+        <th>{{ e.nombre }}</th>
+        {% for estado, texto, signo in columnas %}
+        {% set nombre = campo_envase(e.id, estado) %}
+        <td><label for="{{ nombre }}">{{ texto }}</label><input name="{{ nombre }}" id="{{ nombre }}" value="{{ textos_envases.get(nombre, '') }}"
+              inputmode="decimal" placeholder="0" autocomplete="off" class="envase" data-envase="{{ e.id }}" data-estado="{{ estado }}"
+              data-signo="{{ signo }}" data-nombre="{{ e.nombre|lower }}"></td>
+        {% endfor %}
+        <td class="saldo-insumo" id="saldo-envase-{{ e.id }}"></td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="ayuda" style="margin-bottom:0">
+    {%- if modo == 'INGRESO' %}Los tambores, cisternas y demás envases vacíos que manda el cliente para los trasvasos. Se lleva la cuenta de cuántos tiene
+      cada empresa en el depósito: los trasvasos usan sus vacíos y le dejan los sucios. Se puede cargar un remito solo con envases.
+    {%- elif modo == 'EGRESO' %}Los vacíos que sobraron o los sucios que se lleva el cliente. No pueden salir más de los que la empresa tiene en el depósito.
+    {%- else %}Se completan solos: los vacíos con lo que se envasa y los sucios con lo que se vacía del depósito; si no fue así, cambialos.
+      Se usan los vacíos que esta empresa tiene en el depósito (los que mandó, cargados con un ingreso) y no pueden quedar en negativo.{% endif %}
+      <a href="{{ url_for('trasvasos.envases_vacios') }}">Ver los saldos de cada cliente</a></p>
+    {% else %}
+    <p class="ayuda" style="margin:0">Ningún tipo de envase lleva la cuenta de vacíos y sucios. Marcalos en
+      <a href="{{ url_for('stock.envases_lista') }}">Tipos de envase</a> (por ejemplo, tambores y cisternas).</p>
+    {% endif %}
+  </div>
+{% endmacro %}

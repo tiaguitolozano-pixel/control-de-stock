@@ -64,29 +64,7 @@
     <p class="ayuda" id="aviso-empresa">Elegí la empresa para ver sus productos.</p>
   </div>
 
-  <div class="tarjeta">
-    <h2 style="margin-top:0">Envases vacíos y sucios</h2>
-    {% if envases %}
-    <table class="insumos">
-      {% for e in envases %}
-      <tr>
-        <th>{{ e.nombre }}</th>
-        <td><label>Vacíos que se usan</label><input name="{{ campo_envase(e.id, 'VACIO') }}" value="{{ textos_envases.get(campo_envase(e.id, 'VACIO'), '') }}" inputmode="decimal" placeholder="0" autocomplete="off"
-                   class="envase" data-envase="{{ e.id }}" data-estado="VACIO" data-nombre="{{ e.nombre|lower }}" data-hay="{{ e.vacios }}" aria-label="{{ e.nombre }}: vacíos que se usan"></td>
-        <td><label>Sucios que quedan</label><input name="{{ campo_envase(e.id, 'SUCIO') }}" value="{{ textos_envases.get(campo_envase(e.id, 'SUCIO'), '') }}" inputmode="decimal" placeholder="0" autocomplete="off"
-                   class="envase" data-envase="{{ e.id }}" data-estado="SUCIO" data-nombre="{{ e.nombre|lower }}" data-hay="{{ e.sucios }}" aria-label="{{ e.nombre }}: sucios que quedan"></td>
-        <td class="saldo-insumo" id="saldo-envase-{{ e.id }}"></td>
-      </tr>
-      {% endfor %}
-    </table>
-    <p class="ayuda" style="margin-bottom:0">Son los envases del depósito. Se completan solos: los vacíos con lo que se envasa y los sucios con lo que se vacía del depósito;
-      si no fue así (por ejemplo, el cliente trajo sus envases), cambialos. Los vacíos no pueden quedar en negativo.
-      <a href="{{ url_for('trasvasos.envases_vacios') }}">Ver o corregir el stock de envases</a></p>
-    {% else %}
-    <p class="ayuda" style="margin:0">Ningún tipo de envase lleva la cuenta de vacíos y sucios. Marcalos en
-      <a href="{{ url_for('stock.envases_lista') }}">Tipos de envase</a> (por ejemplo, tambores y cisternas).</p>
-    {% endif %}
-  </div>
+  {{ campos.envases_cliente(envases, campo_envase, textos_envases, columnas_envases, 'TRASVASO') }}
 
   {{ campos.insumos_adicionales(insumos, campos_insumo, textos_insumos) }}
 
@@ -121,6 +99,7 @@
   const inputsEnvase = [...document.querySelectorAll('input.envase')];
   let productos = [];
   let saldosInsumos = {};
+  let saldosEnvases = {};
   const desdeDeposito = () => document.querySelector('input[name=origen]:checked').value === 'DEPOSITO';
 
   R.transporte({{ previos|tojson }});
@@ -130,11 +109,12 @@
   const destino = R.tabla({...comunes, cuerpo: document.getElementById('renglones'), modo: 'INGRESO',
     totalCantidades: document.getElementById('total-cantidades'), totalKilos: document.getElementById('total-kilos')});
   const actualizarSaldosInsumos = R.insumosCliente(empresa, false, () => saldosInsumos);
+  const mostrarSaldosEnvases = R.envasesCliente(empresa, () => saldosEnvases);
 
   // Los envases que el usuario cambia a mano ya no se completan solos.
   inputsEnvase.forEach(i => {
     i.dataset.auto = i.value ? '0' : '1';
-    i.addEventListener('input', () => { i.dataset.auto = '0'; mostrarSaldosEnvases(); });
+    i.addEventListener('input', () => { i.dataset.auto = '0'; });
   });
 
   function cantidadesPorEnvase(lineas) {
@@ -144,29 +124,6 @@
       res.set(clave, (res.get(clave) || 0) + l.cantidad);
     }
     return res;
-  }
-
-  function mostrarSaldosEnvases() {
-    const porEnvase = {};
-    inputsEnvase.forEach(i => { (porEnvase[i.dataset.envase] = porEnvase[i.dataset.envase] || {})[i.dataset.estado] = i; });
-    for (const [id, par] of Object.entries(porEnvase)) {
-      const celda = document.getElementById('saldo-envase-' + id);
-      celda.classList.remove('negativo');
-      const partes = [];
-      for (const [estado, palabra, signo] of [['VACIO', 'Vacíos', -1], ['SUCIO', 'Sucios', 1]]) {
-        const inp = par[estado];
-        const hay = Number(inp.dataset.hay || 0);
-        const mov = R.leerNumero(inp.value);
-        let txt = palabra + ': hay ' + R.fmt(hay);
-        if (mov > 0) {
-          const queda = R.r3(hay + signo * mov);
-          txt += ' → quedan ' + R.fmt(queda);
-          if (queda < 0) celda.classList.add('negativo');
-        }
-        partes.push(txt);
-      }
-      celda.textContent = partes.join(' · ');
-    }
   }
 
   function recalcular() {
@@ -218,14 +175,16 @@
   async function cargarProductos(conservarDestino, conservarOrigen) {
     const id = empresa.value;
     linkNuevo.href = '{{ url_for("stock.producto_form") }}?empresa_id=' + id + '&volver=' + encodeURIComponent(location.pathname + '?empresa_id=' + id);
-    if (!id) { productos = []; saldosInsumos = {}; aviso.style.display = ''; }
+    if (!id) { productos = []; saldosInsumos = {}; saldosEnvases = {}; aviso.style.display = ''; }
     else {
-      const [r, rs] = await Promise.all([
+      const [r, rs, re] = await Promise.all([
         fetch('{{ url_for("stock.api_productos") }}?empresa_id=' + id),
         fetch('{{ url_for("stock.api_insumos") }}?empresa_id=' + id),
+        fetch('{{ url_for("trasvasos.api_envases") }}?empresa_id=' + id),
       ]);
       productos = await r.json();
       saldosInsumos = await rs.json();
+      saldosEnvases = await re.json();
       aviso.style.display = productos.length ? 'none' : '';
       aviso.textContent = productos.length ? '' : 'Esta empresa todavía no tiene productos. Crealos con el enlace de arriba.';
     }

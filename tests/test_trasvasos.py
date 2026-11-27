@@ -1,4 +1,4 @@
-"""Pruebas de los trasvasos y del stock de envases vacíos y sucios (pedido del 26/11)."""
+"""Pruebas de los trasvasos y de los envases vacíos y sucios de cada cliente (pedidos del 26/11)."""
 import sqlite3
 from io import BytesIO
 
@@ -25,12 +25,13 @@ def envase(app, nombre):
         return get_db().execute("SELECT id FROM envases WHERE nombre = ?", (nombre,)).fetchone()[0]
 
 
-def saldo(app, nombre, estado):
+def saldo(app, nombre, estado, empresa_id=1):
+    """Los envases de una empresa en el depósito."""
     with app.app_context():
         r = get_db().execute(
             """SELECT COALESCE(SUM(m.cantidad), 0) FROM envase_movs m JOIN envases v ON v.id = m.envase_id
-               WHERE v.nombre = ? AND m.estado = ? AND m.anulado = 0""",
-            (nombre, estado),
+               WHERE v.nombre = ? AND m.estado = ? AND m.anulado = 0 AND m.empresa_id = ?""",
+            (nombre, estado, empresa_id),
         ).fetchone()
         return r[0]
 
@@ -40,9 +41,10 @@ def stock(app, producto_id):
         return stock_por_id([producto_id])[producto_id]
 
 
-def anotar(client, app, nombre, accion, cantidad, **extra):
+def anotar(client, app, nombre, accion, cantidad, empresa_id=1, **extra):
     return client.post("/trasvasos/envases", data={
-        "envase_id": envase(app, nombre), "accion": accion, "cantidad": str(cantidad), "fecha": "2026-11-01", **extra,
+        "empresa_id": empresa_id, "envase_id": envase(app, nombre), "accion": accion, "cantidad": str(cantidad),
+        "fecha": "2026-11-01", **extra,
     }, follow_redirects=True)
 
 
@@ -82,12 +84,15 @@ def test_tambores_y_cisternas_llevan_vacios_y_sucios(app):
 
 
 def test_envases_vacios_y_sucios_a_mano(app, client):
+    crear_empresa(client)
     assert "Ningún tipo" not in texto(client.get("/trasvasos/envases"))
-    r = anotar(client, app, "Tambores de chapa", "ENTRAN_VACIOS", 10, observaciones="Compra a Envases SA")
+    r = anotar(client, app, "Tambores de chapa", "ENTRAN_VACIOS", 10, empresa_id="")
+    assert "Elegí la empresa" in texto(r)
+    r = anotar(client, app, "Tambores de chapa", "ENTRAN_VACIOS", 10, observaciones="Los trajo el cliente")
     assert "Listo, quedó anotado" in texto(r)
     assert saldo(app, "Tambores de chapa", "VACIO") == 10
     r = anotar(client, app, "Tambores de chapa", "SALEN_VACIOS", 15)
-    assert "hay 10 tambores de chapa vacíos y querés sacar 15" in texto(r)
+    assert "Esta empresa tiene 10 tambores de chapa vacíos en el depósito y querés sacar 15" in texto(r)
     anotar(client, app, "Tambores de chapa", "CONTEO_SUCIOS", 7)
     assert saldo(app, "Tambores de chapa", "SUCIO") == 7
     anotar(client, app, "Tambores de chapa", "LAVADO", 3)
@@ -99,7 +104,7 @@ def test_envases_vacios_y_sucios_a_mano(app, client):
     pagina = texto(client.get("/trasvasos/envases"))
     # El lavado es una sola anotación: salen 3 sucios y entran 3 vacíos.
     assert pagina.count("Se lavan sucios") == 2  # en la lista de opciones y en el historial
-    assert "Compra a Envases SA" in pagina
+    assert "Los trajo el cliente" in pagina and "Acme SA" in pagina
 
 
 def test_tipos_de_envase_eligen_si_llevan_vacios(app, client):
@@ -175,7 +180,7 @@ def test_no_se_pueden_usar_mas_vacios_de_los_que_hay(app, client):
     anotar(client, app, "Tambores de chapa", "ENTRAN_VACIOS", 5)
     r = trasvaso(client, app, [(TAMBORES, "10", "", "")], envases={("Tambores de chapa", "VACIO"): 10})
     assert r.status_code == 200
-    assert "Tambores de chapa vacíos: en el depósito hay 5 y querés usar 10" in texto(r)
+    assert "Tambores de chapa vacíos: esta empresa tiene 5 en el depósito y querés usar 10" in texto(r)
     with app.app_context():
         assert get_db().execute("SELECT COUNT(*) FROM trasvasos").fetchone()[0] == 0
     # El formulario vuelve con lo que se había escrito.
@@ -231,7 +236,7 @@ def test_no_se_anula_si_lo_envasado_ya_salio_o_los_sucios_se_lavaron(app, client
     # Se lavaron las cisternas sucias: anular dejaría los sucios en negativo.
     anotar(client, app, "Cisternas", "LAVADO", 2)
     r = client.post("/trasvasos/1/anular", data={"motivo": "x"}, follow_redirects=True)
-    assert "las cisternas sucias quedarían en negativo" in texto(r)
+    assert "las cisternas sucias de esta empresa quedarían en negativo" in texto(r)
     anotar(client, app, "Cisternas", "CONTEO_SUCIOS", 2)
     # Salieron 3 de los tambores envasados: anular dejaría stock negativo.
     movimiento(client, "egreso", [(TAMBORES, "3", lote_id(app, TAMBORES, "L-C"))], remito="E-1")
@@ -300,3 +305,86 @@ def test_migracion_desde_la_version_3(tmp_path):
         assert "trasvaso_id" in {c[1] for c in db.execute("PRAGMA table_info(movimientos)")}
     assert len(list((tmp_path / "datos" / "respaldos").glob("antes-de-actualizar-v3_*.db"))) == 1
     assert app.test_client().get("/trasvasos").status_code == 200
+
+
+# ------------------------------------------- envases vacíos de cada cliente
+
+
+def test_los_vacios_del_cliente_entran_con_un_ingreso_y_vuelven_con_un_egreso(app, client):
+    preparar(client)
+    tambores = envase(app, "Tambores de chapa")
+    # Un remito solo con los tambores vacíos que manda el cliente.
+    assert f'name="env_{tambores}_VACIO"' in texto(client.get("/movimientos/nuevo/ingreso"))
+    r = movimiento(client, "ingreso", [], remito="R-V1", **{f"env_{tambores}_VACIO": "100"})
+    assert r.status_code == 302
+    detalle = texto(client.get(r.headers["Location"]))
+    assert "solo de envases" in detalle and "Vacíos que entraron" in detalle
+    assert saldo(app, "Tambores de chapa", "VACIO") == 100
+    assert client.get("/api/envases?empresa_id=1").get_json() == {str(tambores): {"VACIO": 100}}
+    historial = texto(client.get("/movimientos"))
+    assert "Insumos adicionales y envases del cliente" in historial and "Tambores de chapa vacíos" in historial
+    # El trasvaso usa 80 de esos vacíos.
+    assert trasvaso(client, app, [(TAMBORES, "80", "L1", "")],
+                    envases={("Tambores de chapa", "VACIO"): 80}).status_code == 302
+    assert saldo(app, "Tambores de chapa", "VACIO") == 20
+    # El ingreso de los vacíos ya no se puede anular: se usaron.
+    r = client.post("/movimientos/1/anular", data={"motivo": "x"}, follow_redirects=True)
+    assert "los tambores de chapa vacíos de esta empresa quedarían en negativo" in texto(r)
+    # Con un egreso se le devuelven al cliente los que sobraron (no más de los que tiene).
+    r = movimiento(client, "egreso", [], remito="D-1", **{f"env_{tambores}_VACIO": "30"})
+    assert r.status_code == 200
+    assert "Tambores de chapa vacíos: esta empresa tiene 20 en el depósito y querés sacar 30" in texto(r)
+    r = movimiento(client, "egreso", [], remito="D-1", **{f"env_{tambores}_VACIO": "20"})
+    assert r.status_code == 302
+    assert saldo(app, "Tambores de chapa", "VACIO") == 0
+    assert "Envases que se devolvieron al cliente" in texto(client.get(r.headers["Location"]))
+    egreso_id = int(r.headers["Location"].rsplit("/", 1)[1])
+    client.post(f"/movimientos/{egreso_id}/anular", data={"motivo": "no se llevó nada"})
+    assert saldo(app, "Tambores de chapa", "VACIO") == 20
+    # En el stock se ve cuántos vacíos de clientes hay.
+    assert "Tambores de chapa vacíos de clientes en el depósito" in texto(client.get("/"))
+
+
+def test_cada_empresa_usa_sus_vacios(app, client):
+    preparar(client)
+    crear_empresa(client, "Otra SA")
+    anotar(client, app, "Tambores de chapa", "ENTRAN_VACIOS", 50, empresa_id=2)
+    r = trasvaso(client, app, [(TAMBORES, "8", "", "")], envases={("Tambores de chapa", "VACIO"): 8})
+    assert r.status_code == 200
+    assert "Tambores de chapa vacíos: esta empresa tiene 0 en el depósito y querés usar 8" in texto(r)
+    anotar(client, app, "Tambores de chapa", "CONTEO_VACIOS", 8)
+    assert trasvaso(client, app, [(TAMBORES, "8", "", "")],
+                    envases={("Tambores de chapa", "VACIO"): 8}).status_code == 302
+    assert saldo(app, "Tambores de chapa", "VACIO", 1) == 0 and saldo(app, "Tambores de chapa", "VACIO", 2) == 50
+    pagina = texto(client.get("/trasvasos/envases"))
+    assert "Acme SA" in pagina and "Otra SA" in pagina
+    saldos_acme = texto(client.get("/trasvasos/envases?empresa_id=1")).split("<table>")[1].split("</table>")[0]
+    assert "Tambores de chapa" in saldos_acme and "Otra SA" not in saldos_acme
+
+
+def test_migracion_desde_la_version_4(tmp_path):
+    ruta = tmp_path / "datos" / "stock.db"
+    ruta.parent.mkdir()
+    con = sqlite3.connect(ruta)
+    con.executescript(ESQUEMA)
+    for numero, sql in enumerate(MIGRACIONES[:4], start=1):
+        con.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version = {numero};\nCOMMIT;")
+    con.executescript("""
+        INSERT INTO empresas (nombre) VALUES ('Copsa');
+        INSERT INTO trasvasos (empresa_id, fecha, orden, origen) VALUES (1, '2026-11-26', '4521', 'AFUERA');
+        INSERT INTO envase_movs (envase_id, estado, cantidad, motivo, fecha)
+            VALUES (2, 'VACIO', 120, 'CONTEO', '2026-11-26');
+        INSERT INTO envase_movs (envase_id, estado, cantidad, motivo, fecha, trasvaso_id)
+            VALUES (2, 'VACIO', -80, 'TRASVASO', '2026-11-26', 1);
+    """)
+    con.commit()
+    con.close()
+    app = create_app({"TESTING": True, "DATABASE": str(ruta)})
+    with app.app_context():
+        db = get_db()
+        assert db.execute("PRAGMA user_version").fetchone()[0] == len(MIGRACIONES)
+        filas = [tuple(r) for r in db.execute("SELECT motivo, empresa_id, anulado FROM envase_movs ORDER BY id")]
+    # El conteo del depósito (sin cliente) queda anulado; el del trasvaso pasa a ser de su empresa.
+    assert filas == [("CONTEO", None, 1), ("TRASVASO", 1, 0)]
+    assert len(list((tmp_path / "datos" / "respaldos").glob("antes-de-actualizar-v4_*.db"))) == 1
+    assert app.test_client().get("/trasvasos/envases").status_code == 200

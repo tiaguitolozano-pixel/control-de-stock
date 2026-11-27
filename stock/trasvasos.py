@@ -4,14 +4,14 @@ Por ejemplo, un isotanque que llega del puerto se descarga en tambores o cistern
 que están en el depósito se pasan a tambores. Un trasvaso queda guardado así:
   - lo que queda envasado entra al stock de la empresa como un ingreso (con su lote, pallets, etc.);
   - si el producto ya estaba en el depósito, lo que se vacía sale del stock como un egreso;
-  - los envases vacíos que se usan salen del stock de envases del depósito y los envases que se
-    vaciaron quedan como sucios (ver vacios.py).
+  - los envases vacíos que se usan salen de los vacíos que la empresa tiene en el depósito (los manda
+    el cliente y entran con un ingreso) y los envases que se vaciaron le quedan como sucios (ver vacios.py).
 Los dos remitos llevan el número de orden y se anulan juntos, desde el trasvaso.
 """
 from collections import defaultdict
 from datetime import date
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
 
 from . import fotos as ft
 from . import insumos as ins
@@ -146,8 +146,9 @@ def lista_trasvasos(f, limite=LIMITE_LISTA):
 def trasvasos():
     f = _filtros()
     filas = lista_trasvasos(f)
+    envases = vacios.resumen(f["empresa_id"]) if f["empresa_id"] else []
     return render_template("trasvasos.html", trasvasos=filas, f=f, empresas=_empresas(),
-                           envases=vacios.tipos(), origenes=ORIGENES, limite=LIMITE_LISTA)
+                           envases=envases, origenes=ORIGENES, limite=LIMITE_LISTA)
 
 
 def _texto_envases(envases, clave):
@@ -184,7 +185,8 @@ def _form(form, destino, origen, mostrar_repetido=False, textos_insumos=None, te
         "trasvaso_form.html", empresas=_empresas(solo_activas=True), form=form, renglones=destino,
         renglones_origen=origen, mostrar_repetido=mostrar_repetido, previos=_transportes_previos(),
         insumos=ins.lista(), campos_insumo=ins.campos, textos_insumos=textos_insumos or {},
-        envases=vacios.tipos(), campo_envase=vacios.campo, textos_envases=textos_envases or {},
+        envases=vacios.tipos_para_cargar(), campo_envase=vacios.campo,
+        columnas_envases=vacios.COLUMNAS["TRASVASO"], textos_envases=textos_envases or {},
     )
 
 
@@ -211,7 +213,7 @@ def trasvaso_nuevo():
     destino = rm.leer_renglones(request.form)
     sale = rm.leer_renglones(request.form, "o_") if origen == "DEPOSITO" else []
     insumos, errores_insumos, textos_insumos = ins.leer_formulario(request.form)
-    envases, errores_envases, textos_envases = vacios.leer_formulario(request.form, vacios.tipos())
+    envases, errores_envases, textos_envases = vacios.leer_formulario(request.form, "TRASVASO")
     fotos, errores_fotos = ft.leer_subidas(request.files.getlist("fotos"))
 
     errores = []
@@ -235,7 +237,7 @@ def trasvaso_nuevo():
     errores += _con_prefijo("Origen", errores_salen) + _con_prefijo("Destino", errores_entran)
     if not errores:
         errores += _con_prefijo("Origen", rm.chequear_stock(items_salen, productos))
-        errores += vacios.chequear(envases)
+        errores += vacios.chequear(empresa_id, "TRASVASO", envases)
 
     mostrar_repetido = False
     if empresa_id and orden and not errores:
@@ -276,7 +278,7 @@ def trasvaso_nuevo():
     remitos.append(ingreso_id)
     db.execute(f"UPDATE movimientos SET trasvaso_id = ? WHERE id IN ({','.join('?' * len(remitos))})",
                [trasvaso_id, *remitos])
-    vacios.registrar_trasvaso(trasvaso_id, fecha, envases)
+    vacios.registrar(empresa_id, fecha, "TRASVASO", envases, trasvaso_id=trasvaso_id)
     creados, avisos = [], []
     if request.form.get("crear_pallets") == "1":
         creados, avisos = pl.crear_pallets_de_ingreso(ingreso_id)
@@ -349,14 +351,14 @@ def trasvaso_anular(trasvaso_id):
         if problema:
             flash(problema, "error")
             return volver
-    problemas = vacios.problemas_al_anular(trasvaso_id)
+    problemas = vacios.problemas_al_anular(trasvaso_id=trasvaso_id)
     if problemas:
         flash("No se puede anular: " + "; ".join(problemas)
-              + ". Primero corregí los envases sucios en Envases vacíos y sucios.", "error")
+              + ". Primero corregí los envases en Trasvasos → Envases vacíos y sucios.", "error")
         return volver
     db.execute("UPDATE movimientos SET anulado = 1, motivo_anulacion = ? WHERE trasvaso_id = ? AND anulado = 0",
                (f"Trasvaso anulado: {motivo}", trasvaso_id))
-    vacios.anular_trasvaso(trasvaso_id)
+    vacios.anular(trasvaso_id=trasvaso_id)
     db.execute("UPDATE trasvasos SET anulado = 1, motivo_anulacion = ? WHERE id = ?", (motivo, trasvaso_id))
     db.commit()
     flash("Trasvaso anulado. Se recalcularon el stock de la mercadería y el de los envases.", "ok")
@@ -369,19 +371,32 @@ def trasvaso_anular(trasvaso_id):
 @bp.route("/trasvasos/envases", methods=["GET", "POST"])
 def envases_vacios():
     if request.method == "POST":
+        empresa_id = _int_o_none(request.form.get("empresa_id"))
         fecha = _texto("fecha") or date.today().isoformat()
         texto = _texto("cantidad")
         cantidad = parse_numero(texto) if texto else None
         if not _fecha_valida(fecha):
             error = "La fecha no es válida."
         else:
-            error = vacios.registrar_accion(_int_o_none(request.form.get("envase_id")), request.form.get("accion"),
-                                            cantidad, fecha, _texto("observaciones"))
+            error = vacios.registrar_accion(empresa_id, _int_o_none(request.form.get("envase_id")),
+                                            request.form.get("accion"), cantidad, fecha, _texto("observaciones"))
         if error:
             flash(error, "error")
         else:
             get_db().commit()
             flash("Listo, quedó anotado.", "ok")
-        return redirect(url_for("trasvasos.envases_vacios"))
-    return render_template("envases_vacios.html", envases=vacios.tipos(), historial=vacios.historial(),
-                           acciones=vacios.ACCIONES, motivos=vacios.MOTIVOS)
+        return redirect(url_for("trasvasos.envases_vacios", empresa_id=empresa_id or None))
+    empresa_id = _int_o_none(request.args.get("empresa_id"))
+    return render_template(
+        "envases_vacios.html", empresa_id=empresa_id, empresas=_empresas(),
+        empresas_activas=_empresas(solo_activas=True), resumen=vacios.resumen(empresa_id),
+        tipos=vacios.tipos_para_anotar(), lleva_alguno=bool(vacios.tipos_para_cargar()),
+        historial=vacios.historial(empresa_id), acciones=vacios.ACCIONES, motivos=vacios.MOTIVOS,
+    )
+
+
+@bp.route("/api/envases")
+def api_envases():
+    """Los envases vacíos y sucios que la empresa tiene en el depósito: {envase_id: {'VACIO': x, 'SUCIO': y}}."""
+    empresa_id = _int_o_none(request.args.get("empresa_id"))
+    return jsonify({str(eid): s for eid, s in vacios.saldos_de(empresa_id).items()} if empresa_id else {})

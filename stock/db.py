@@ -237,6 +237,21 @@ MIGRACIONES = [
     CREATE INDEX IF NOT EXISTS idx_envase_movs_envase ON envase_movs(envase_id, estado);
     CREATE INDEX IF NOT EXISTS idx_envase_movs_trasvaso ON envase_movs(trasvaso_id);
     """,
+    # 5: los envases vacíos y sucios son de cada cliente (no del depósito): entran con los ingresos,
+    #    los usan los trasvasos y salen con los egresos.
+    """
+    ALTER TABLE envase_movs ADD COLUMN empresa_id INTEGER REFERENCES empresas(id);
+    ALTER TABLE envase_movs ADD COLUMN movimiento_id INTEGER REFERENCES movimientos(id);
+    UPDATE envase_movs SET empresa_id = (SELECT t.empresa_id FROM trasvasos t WHERE t.id = envase_movs.trasvaso_id)
+        WHERE trasvaso_id IS NOT NULL;
+    -- Lo anotado a mano en la versión 4 era del depósito, sin cliente: queda anulado (se ve tachado en el historial).
+    UPDATE envase_movs SET anulado = 1,
+        observaciones = TRIM(COALESCE(observaciones, '')
+                             || ' (sin cliente: se anuló al pasar los envases a cada cliente)')
+        WHERE empresa_id IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_envase_movs_empresa ON envase_movs(empresa_id, envase_id, estado);
+    CREATE INDEX IF NOT EXISTS idx_envase_movs_movimiento ON envase_movs(movimiento_id);
+    """,
 ]
 
 

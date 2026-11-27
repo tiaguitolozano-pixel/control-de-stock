@@ -30,6 +30,7 @@ from . import fotos as ft
 from . import insumos as ins
 from . import pallets as pl
 from . import remitos as rm
+from . import vacios
 from .excel import armar_excel
 from .formato import cantidad_pallets
 from .historial import libro_por_lote
@@ -166,6 +167,7 @@ def inicio():
         saldos[insumo_id] += saldo
     nombres = {i["id"]: i["nombre"] for i in ins.lista(solo_activos=False)}
     resumen["insumos_cliente"] = [(nombres[i], round(s, 6)) for i, s in saldos.items()]
+    resumen["envases_cliente"] = vacios.totales_por_tipo(f["empresa_id"])
     return render_template(
         "inicio.html", filas=filas, lotes=lotes, filtros=f, empresas=_empresas(), resumen=resumen,
         vtos=proximo_vencimiento_por_producto(f["empresa_id"]),
@@ -596,18 +598,35 @@ def _kilos_de_totales(totales):
 
 
 def _renglones_insumos(f):
-    """Los insumos adicionales de los remitos, con los mismos filtros (el de producto no aplica)."""
+    """Los insumos adicionales y los envases vacíos o sucios de los remitos, con los mismos filtros
+    (el de producto no aplica)."""
     if f["producto"]:
         return []
     where, params = _where_movimientos(f, con_anulados=f["ver_anulados"], con_producto=False)
-    return get_db().execute(
+    db = get_db()
+    insumos = [dict(r) for r in db.execute(
         """SELECT m.id, m.tipo, m.fecha, m.remito, m.anulado, e.nombre AS empresa,
                   mi.insumo_id, mi.propietario, mi.cantidad, s.nombre, s.unidad
            FROM movimientos m JOIN empresas e ON e.id = m.empresa_id
            JOIN movimiento_insumos mi ON mi.movimiento_id = m.id
            JOIN insumos s ON s.id = mi.insumo_id""" + where + " ORDER BY m.fecha, m.id, mi.id",
         params,
-    ).fetchall()
+    )]
+    envases = [
+        {"id": r["id"], "tipo": r["tipo"], "fecha": r["fecha"], "remito": r["remito"], "anulado": r["anulado"],
+         "empresa": r["empresa"], "insumo_id": None, "propietario": None, "cantidad": r["cantidad"],
+         "nombre": f"{r['envase']} {vacios.palabras(r['envase'], r['estado'])[1]}", "unidad": "", "envase": True}
+        for r in db.execute(
+            """SELECT m.id, m.tipo, m.fecha, m.remito, m.anulado, e.nombre AS empresa, s.nombre AS envase,
+                      v.estado, ABS(SUM(v.cantidad)) AS cantidad
+               FROM movimientos m JOIN empresas e ON e.id = m.empresa_id
+               JOIN envase_movs v ON v.movimiento_id = m.id
+               JOIN envases s ON s.id = v.envase_id""" + where
+            + " GROUP BY m.id, v.envase_id, v.estado ORDER BY m.fecha, m.id, s.nombre, v.estado DESC",
+            params,
+        )
+    ]
+    return sorted(insumos + envases, key=lambda r: (r["fecha"], r["id"], r.get("envase", False)))
 
 
 def _totales_insumos(renglones):
@@ -631,6 +650,7 @@ def movimientos():
         "movimientos.html", libro=libro_por_lote(renglones, f["desde"], f["hasta"]),
         cantidad_renglones=len(renglones), limite=LIMITE_RENGLONES, totales=totales,
         kilos=_kilos_de_totales(totales), insumos=insumos, totales_insumos=_totales_insumos(insumos),
+        hay_envases=any(r.get("envase") for r in insumos),
         nombre_insumo=ins.nombre_renglon, filtros=f, empresas=_empresas(), tipos=TIPOS,
     )
 
@@ -678,8 +698,8 @@ def movimientos_excel():
          r["unidad"], "Sí" if r["anulado"] else "")
         for r in _renglones_insumos(f)
     ]
-    hojas = [("Insumos", ["Fecha", "Remito", "Empresa", "Insumo", "En ingresos", "En egresos", "Unidad", "Anulado"],
-              insumos)] if insumos else []
+    hojas = [("Insumos", ["Fecha", "Remito", "Empresa", "Insumo o envase", "En ingresos", "En egresos", "Unidad",
+                          "Anulado"], insumos)] if insumos else []
     return _excel("movimientos", "Movimientos", encabezados, filas, pie=pie, hojas_extra=hojas)
 
 
@@ -725,12 +745,13 @@ def _tipos_contenedor():
     return usados + [t for t in TIPOS_CONTENEDOR if t.lower() not in vistos]
 
 
-def _form_movimiento(tipo, form, renglones, mostrar_repetido=False, textos_insumos=None):
+def _form_movimiento(tipo, form, renglones, mostrar_repetido=False, textos_insumos=None, textos_envases=None):
     return render_template(
         "movimiento_form.html", tipo=tipo, tipos=TIPOS, empresas=_empresas(solo_activas=True),
         form=form, renglones=renglones, mostrar_repetido=mostrar_repetido,
         previos=_transportes_previos(), insumos=ins.lista(), campos_insumo=ins.campos,
-        textos_insumos=textos_insumos or {},
+        textos_insumos=textos_insumos or {}, envases=vacios.tipos_para_cargar(), campo_envase=vacios.campo,
+        columnas_envases=vacios.COLUMNAS[tipo], textos_envases=textos_envases or {},
     )
 
 
@@ -756,6 +777,7 @@ def movimiento_nuevo(tipo):
     renglones = rm.leer_renglones(request.form)
 
     insumos, errores_insumos, textos_insumos = ins.leer_formulario(request.form)
+    envases, errores_envases, textos_envases = vacios.leer_formulario(request.form, tipo)
     fotos, errores_fotos = ft.leer_subidas(request.files.getlist("fotos"))
 
     errores = []
@@ -765,11 +787,14 @@ def movimiento_nuevo(tipo):
         errores.append("La fecha no es válida.")
     if not remito:
         errores.append("El número de remito es obligatorio.")
-    if not renglones and not insumos and not errores_insumos:
-        errores.append("Cargá al menos un producto (o solo insumos, por ejemplo una devolución de pallets).")
-    errores += errores_insumos + errores_fotos
+    if not renglones and not insumos and not envases and not errores_insumos and not errores_envases:
+        errores.append("Cargá al menos un producto (o solo insumos o envases vacíos, por ejemplo una devolución "
+                       "de pallets o los tambores vacíos que manda el cliente).")
+    errores += errores_insumos + errores_envases + errores_fotos
     if tipo == "EGRESO" and empresa_id and insumos:
         errores += ins.chequear_egreso(empresa_id, insumos)
+    if tipo == "EGRESO" and empresa_id and envases:
+        errores += vacios.chequear(empresa_id, tipo, envases)
 
     productos = rm.productos_de_empresa(empresa_id)
     items, vencimientos, errores_renglones = rm.revisar_renglones(tipo, renglones, productos)
@@ -797,7 +822,7 @@ def movimiento_nuevo(tipo):
             flash("Las fotos no se guardaron: volvé a elegirlas antes de guardar.", "aviso")
         form = {"empresa_id": empresa_id, "fecha": fecha, "remito": remito, "observaciones": observaciones,
                 "crear_pallets": request.form.get("crear_pallets", ""), **transporte}
-        return _form_movimiento(tipo, form, renglones, mostrar_repetido, textos_insumos)
+        return _form_movimiento(tipo, form, renglones, mostrar_repetido, textos_insumos, textos_envases)
 
     plan_pallets = {}
     if tipo == "INGRESO":
@@ -805,6 +830,7 @@ def movimiento_nuevo(tipo):
     else:
         lineas, plan_pallets = rm.lineas_de_egreso(items, productos)
     mid = registrar_movimiento(tipo, empresa_id, fecha, remito, observaciones, lineas, transporte, insumos)
+    vacios.registrar(empresa_id, fecha, tipo, envases, movimiento_id=mid)
     avisos, creados = [], []
     if tipo == "INGRESO" and request.form.get("crear_pallets") == "1":
         creados, avisos = pl.crear_pallets_de_ingreso(mid)
@@ -874,7 +900,8 @@ def movimiento_detalle(movimiento_id):
     return render_template("movimiento_detalle.html", m=m, items=items, totales=totales, tipos=TIPOS,
                            usados=usados, armados=sorted(armados, key=lambda p: p["id"]),
                            insumos=ins.de_movimiento(movimiento_id), nombre_insumo=ins.nombre_renglon,
-                           fotos=ft.de_movimiento(movimiento_id), trasvaso=trasvaso)
+                           envases=vacios.de_movimiento(movimiento_id), fotos=ft.de_movimiento(movimiento_id),
+                           trasvaso=trasvaso)
 
 
 @bp.route("/movimientos/<int:movimiento_id>/anular", methods=["POST"])
@@ -899,6 +926,7 @@ def movimiento_anular(movimiento_id):
     db.execute(
         "UPDATE movimientos SET anulado = 1, motivo_anulacion = ? WHERE id = ?", (motivo, movimiento_id)
     )
+    vacios.anular(movimiento_id=movimiento_id)
     db.commit()
     flash("Remito anulado. El stock se recalculó.", "ok")
     return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))

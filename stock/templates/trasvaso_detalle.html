@@ -42,19 +42,10 @@
 {% endif %}
 {% if ingreso %}<p class="ayuda">Entró al stock con el ingreso <a href="{{ url_for('stock.movimiento_detalle', movimiento_id=ingreso.id) }}">{{ ingreso.remito }}</a>.</p>{% endif %}
 
-<h2>Envases vacíos y sucios</h2>
 {% if envases %}
-<div class="tabla">
-<table>
-  <thead><tr><th>Tipo de envase</th><th class="num">Vacíos que se usaron</th><th class="num">Sucios que quedaron</th></tr></thead>
-  <tbody>
-  {% for e in envases %}
-    <tr><td>{{ e.nombre }}</td><td class="num">{{ e.vacios|num if e.vacios else '' }}</td><td class="num">{{ e.sucios|num if e.sucios else '' }}</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-</div>
+{{ partes.tabla_envases(envases, 'Envases vacíos y sucios del cliente', 'Vacíos que se usaron', 'Sucios que quedaron') }}
 {% else %}
+<h2>Envases vacíos y sucios del cliente</h2>
 <div class="tarjeta ayuda">No se anotaron envases vacíos ni sucios.</div>
 {% endif %}
 

@@ -12,6 +12,9 @@
   {% for nombre, saldo in resumen.insumos_cliente %}
   <a class="tarjeta enlace" href="{{ url_for('stock.insumos_lista') }}"><div class="valor">{{ saldo|num }}</div><div class="etiqueta">{{ nombre }} de clientes en el depósito</div></a>
   {% endfor %}
+  {% for nombre, saldo in resumen.envases_cliente %}
+  <a class="tarjeta enlace" href="{{ url_for('trasvasos.envases_vacios', empresa_id=filtros.empresa_id) }}"><div class="valor">{{ saldo|num }}</div><div class="etiqueta">{{ nombre }} de {{ 'la empresa' if filtros.empresa_id else 'clientes' }} en el depósito</div></a>
+  {% endfor %}
 </div>
 
 <div class="acciones">
