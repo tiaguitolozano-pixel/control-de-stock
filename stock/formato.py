@@ -2,15 +2,18 @@
 import math
 
 
-def formato_numero(valor):
-    """1234.5 -> '1.234,5' ; 10.0 -> '10' (formato argentino)."""
+def formato_numero(valor, decimales=3):
+    """1234.5 -> '1.234,5' ; 10.0 -> '10' (formato argentino).
+
+    decimales: cuántos decimales como máximo (en los formularios se usan 6, para no redondear lo guardado).
+    """
     if valor is None:
         return ""
     valor = float(valor)
     if abs(valor - round(valor)) < 1e-9:
         texto = f"{int(round(valor)):,}"
     else:
-        texto = f"{valor:,.3f}".rstrip("0").rstrip(".")
+        texto = f"{valor:,.{decimales}f}".rstrip("0").rstrip(".")
     return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
 

@@ -4,6 +4,15 @@
 {% block contenido %}
 <h1>{{ tipos[m.tipo] }} · Remito {{ m.remito }}
   {% if m.anulado %}<span class="etq anulado">ANULADO</span>{% endif %}</h1>
+<div class="acciones no-imprimir">
+  {% if trasvaso %}
+  <a class="boton" href="{{ url_for('trasvasos.trasvaso_editar', trasvaso_id=trasvaso.id) }}">✎ Editar el trasvaso</a>
+  <a class="boton secundario" href="{{ url_for('trasvasos.trasvaso_borrar', trasvaso_id=trasvaso.id) }}">🗑 Borrar el trasvaso</a>
+  {% else %}
+  {% if not m.anulado %}<a class="boton" href="{{ url_for('stock.movimiento_editar', movimiento_id=m.id) }}">✎ Editar</a>{% endif %}
+  <a class="boton secundario" href="{{ url_for('stock.movimiento_borrar', movimiento_id=m.id) }}">🗑 Borrar</a>
+  {% endif %}
+</div>
 {% if trasvaso %}
 <div class="tarjeta aviso-listo">Este {{ tipos[m.tipo]|lower }} es parte del <a href="{{ url_for('trasvasos.trasvaso_detalle', trasvaso_id=trasvaso.id) }}"><strong>trasvaso de la orden {{ trasvaso.orden }}</strong></a>:
   {{ 'lo que quedó envasado entró al stock con este remito.' if m.tipo == 'INGRESO' else 'lo que se vació salió del stock con este remito.' }}</div>
@@ -60,13 +69,18 @@
   <a class="boton secundario" href="{{ url_for('stock.movimiento_nuevo', tipo=m.tipo|lower, empresa_id=m.empresa_id) }}">Cargar otro {{ tipos[m.tipo]|lower }}</a>
   <a class="boton secundario" href="{{ url_for('stock.movimientos') }}">Volver al historial</a>
 </div>
+{% if cambios %}
+<h2 id="cambios">Cambios de este remito</h2>
+{% from "_cambios.html" import lista_cambios %}{{ lista_cambios(cambios, con_remito=False) }}
+{% endif %}
 {% if trasvaso and not m.anulado %}
 <p class="ayuda no-imprimir">Para anular este remito, anulá el <a href="{{ url_for('trasvasos.trasvaso_detalle', trasvaso_id=trasvaso.id) }}">trasvaso</a> completo.</p>
 {% elif not m.anulado %}
 <details class="tarjeta no-imprimir">
-  <summary>Anular este remito (si se cargó mal)</summary>
+  <summary>Anular este remito (si el remito existió pero se canceló)</summary>
   <form method="post" action="{{ url_for('stock.movimiento_anular', movimiento_id=m.id) }}" style="margin-top:12px">
-    <p class="ayuda">El remito no se borra: queda en el historial marcado como anulado y deja de contar para el stock. Después podés cargarlo de nuevo bien.</p>
+    <p class="ayuda">El remito no se borra: queda en el historial tachado, con el motivo, y deja de contar para el stock.
+      Si fue un error de carga, mejor corregilo con <strong>✎ Editar</strong> o sacalo con <strong>🗑 Borrar</strong>.</p>
     <div class="campo"><label>Motivo *</label><input name="motivo" required placeholder="Ej.: cantidad mal cargada"></div>
     <button class="boton rojo">Anular remito</button>
   </form>

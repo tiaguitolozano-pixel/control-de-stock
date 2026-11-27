@@ -6,7 +6,8 @@ from flask import Blueprint, abort, flash, redirect, render_template, request, u
 
 from . import insumos as ins
 from . import pallets as pl
-from .db import get_db, stock_de_lotes, stock_por_lote_id
+from . import remitos as rm
+from .db import get_db, stock_de_lotes
 from .formato import cantidad_pallets
 from .servicios import CAMPOS_TRANSPORTE, normalizar_transporte, parse_numero, registrar_movimiento
 
@@ -477,10 +478,11 @@ def _confirmar_despacho(form, lineas):
     errores += errores_insumos
     if len(empresas) == 1 and insumos:
         errores += ins.chequear_egreso(next(iter(empresas)), insumos)
-    stock = stock_por_lote_id({lid for _, lid in items})
-    for (pid, lid), cant in items.items():
-        if cant > stock.get(lid, 0) + pl.EPS:
-            errores.append("No hay stock suficiente de uno de los lotes. Revisá los egresos cargados en la oficina.")
+    if items and not errores:
+        productos = {pid: {"codigo": ""} for pid, _ in items}
+        if rm.chequear_stock(items, productos, form["fecha"]):
+            errores.append("No hay stock suficiente de uno de los lotes en esa fecha. "
+                           "Revisá los egresos cargados en la oficina.")
     if errores:
         for e in dict.fromkeys(errores):
             flash(e, "error")

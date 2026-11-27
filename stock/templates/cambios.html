@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "_cambios.html" import lista_cambios %}
+{% block titulo %}Cambios y borrados{% endblock %}
+{% block contenido %}
+<h1>Cambios y borrados</h1>
+<p class="ayuda">Cada vez que se corrige o se borra un remito (o un trasvaso) queda anotado acá: qué se cambió y cuándo.
+  De los borrados queda todo lo que tenían, por si hay que volver a cargarlos.</p>
+<div class="tarjeta">
+  <form class="filtros" method="get">
+    <div class="campo"><label>Empresa</label>
+      <select name="empresa_id">
+        <option value="">Todas</option>
+        {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="campo"><label>Qué</label>
+      <select name="accion">
+        <option value="">Correcciones y borrados</option>
+        <option value="EDITADO" {{ 'selected' if accion == 'EDITADO' }}>Solo correcciones</option>
+        <option value="BORRADO" {{ 'selected' if accion == 'BORRADO' }}>Solo borrados</option>
+      </select>
+    </div>
+    <button class="boton">Filtrar</button>
+    <a href="{{ url_for('stock.movimientos_cambios') }}">Limpiar</a>
+  </form>
+</div>
+{% if cambios %}
+{{ lista_cambios(cambios) }}
+{% if cambios|length >= 300 %}<p class="ayuda">Se muestran los últimos 300.</p>{% endif %}
+{% else %}
+<div class="tarjeta vacio">Todavía no se corrigió ni se borró ningún remito{{ ' de esta empresa' if empresa_id }}.</div>
+{% endif %}
+<p><a class="boton secundario" href="{{ url_for('stock.movimientos') }}">Volver al historial</a></p>
+{% endblock %}

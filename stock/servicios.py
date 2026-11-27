@@ -104,10 +104,24 @@ def buscar_lote(producto_id, lote):
     ).fetchone()
 
 
-def chequear_lote(producto_id, lote, vencimiento, etiqueta):
-    """Devuelve un mensaje de error si el vencimiento no coincide con el ya cargado para ese lote."""
+def otros_ingresos_del_lote(lote_id, movimiento_id):
+    """Cuántos ingresos (sin contar los anulados ni ese remito) trajeron mercadería de ese lote."""
+    return get_db().execute(
+        """SELECT COUNT(DISTINCT m.id) FROM movimiento_items i JOIN movimientos m ON m.id = i.movimiento_id
+           WHERE i.lote_id = ? AND m.tipo = 'INGRESO' AND m.anulado = 0 AND m.id <> ?""",
+        (lote_id, movimiento_id or 0),
+    ).fetchone()[0]
+
+
+def chequear_lote(producto_id, lote, vencimiento, etiqueta, corrigiendo=None):
+    """Devuelve un mensaje de error si el vencimiento no coincide con el ya cargado para ese lote.
+
+    corrigiendo: el remito que se está corrigiendo. Si es el único ingreso de ese lote, el vencimiento se
+    puede cambiar (era un error de carga).
+    """
     existente = buscar_lote(producto_id, lote)
-    if existente and vencimiento and existente["vencimiento"] and existente["vencimiento"] != vencimiento:
+    if (existente and vencimiento and existente["vencimiento"] and existente["vencimiento"] != vencimiento
+            and not (corrigiendo and not otros_ingresos_del_lote(existente["id"], corrigiendo))):
         nombre = f"el lote {lote}" if lote else "la mercadería sin lote"
         return (
             f"{etiqueta}: {nombre} ya está cargado con vencimiento "
@@ -116,11 +130,14 @@ def chequear_lote(producto_id, lote, vencimiento, etiqueta):
     return None
 
 
-def obtener_o_crear_lote(producto_id, lote, vencimiento):
+def obtener_o_crear_lote(producto_id, lote, vencimiento, corrigiendo=None):
+    """El id del lote (lo crea si no existe). corrigiendo: ver chequear_lote."""
     db = get_db()
     existente = buscar_lote(producto_id, lote)
     if existente:
-        if vencimiento and not existente["vencimiento"]:
+        cambia = vencimiento and existente["vencimiento"] != vencimiento and (
+            not existente["vencimiento"] or (corrigiendo and not otros_ingresos_del_lote(existente["id"], corrigiendo)))
+        if cambia:
             db.execute("UPDATE lotes SET vencimiento = ? WHERE id = ?", (vencimiento, existente["id"]))
         return existente["id"]
     cur = db.execute(

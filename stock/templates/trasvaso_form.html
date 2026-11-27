@@ -1,8 +1,14 @@
 {% extends "base.html" %}
 {% import "_remito_campos.html" as campos %}
-{% block titulo %}Nuevo trasvaso{% endblock %}
+{% block titulo %}{% if editando %}Editar trasvaso {{ editando.orden }}{% else %}Nuevo trasvaso{% endif %}{% endblock %}
 {% block contenido %}
+{% if editando %}
+<h1>Editar trasvaso · Orden {{ editando.orden }}</h1>
+<div class="tarjeta aviso-amarillo">Estás corrigiendo un trasvaso ya guardado. Al guardar se recalculan el stock y los envases con los datos nuevos,
+  y el cambio queda anotado en el trasvaso. Los envases no se completan solos: revisalos si cambiás las cantidades.</div>
+{% else %}
 <h1>Cargar trasvaso</h1>
+{% endif %}
 {% if not empresas %}
   <div class="tarjeta">Primero tenés que <a href="{{ url_for('stock.empresa_form') }}">cargar una empresa</a>.</div>
 {% else %}
@@ -12,10 +18,12 @@
   <div class="tarjeta">
     <div class="grilla2">
       <div class="campo"><label for="empresa">Empresa *</label>
-        <select name="empresa_id" id="empresa" required>
+        <select name="empresa_id" id="empresa" required {{ 'disabled' if editando }}>
           <option value="">Elegí…</option>
           {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == form.empresa_id }}>{{ e.nombre }}</option>{% endfor %}
         </select>
+        {% if editando %}<input type="hidden" name="empresa_id" value="{{ editando.empresa_id }}">
+        <div class="ayuda">La empresa no se cambia. Si el trasvaso era de otra empresa, borralo y cargalo de nuevo.</div>{% endif %}
       </div>
       <div class="campo"><label for="fecha">Fecha *</label><input type="date" name="fecha" id="fecha" value="{{ form.fecha or hoy() }}" required></div>
       <div class="campo"><label for="orden">N° de orden *</label><input name="orden" id="orden" value="{{ form.orden or '' }}" required placeholder="La orden del cliente"></div>
@@ -68,6 +76,12 @@
 
   {{ campos.insumos_adicionales(insumos, campos_insumo, textos_insumos) }}
 
+  {% if editando %}
+  <p class="ayuda">Si lo envasado armó pallets con etiqueta, se ajustan solos a las cantidades nuevas (los que sobran se borran y, si hace falta,
+    se arman más). Si cambia lo que sale del depósito, esa mercadería vuelve a sus pallets y el programa decide de nuevo de cuáles sale.</p>
+  <button class="boton">Guardar cambios</button>
+  <a class="boton secundario" href="{{ url_for('trasvasos.trasvaso_detalle', trasvaso_id=editando.id) }}">Cancelar</a>
+  {% else %}
   <div class="tarjeta">
     <h2 style="margin-top:0">Opciones</h2>
     <label class="check"><input type="checkbox" name="crear_pallets" value="1" {{ 'checked' if form.crear_pallets == '1' }}>
@@ -78,6 +92,7 @@
 
   <button class="boton">Guardar trasvaso</button>
   <a class="boton secundario" href="{{ url_for('trasvasos.trasvasos') }}">Cancelar</a>
+  {% endif %}
 </form>
 {% endif %}
 {% endblock %}
@@ -113,9 +128,10 @@
   const actualizarSaldosInsumos = R.insumosCliente(empresa, false, () => saldosInsumos);
   const mostrarSaldosEnvases = R.envasesCliente(empresa, () => saldosEnvases);
 
-  // Los envases que el usuario cambia a mano ya no se completan solos.
+  // Los envases que el usuario cambia a mano ya no se completan solos (y al corregir un trasvaso, ninguno).
+  const editando = {{ 'true' if editando else 'false' }};
   inputsEnvase.forEach(i => {
-    i.dataset.auto = i.value ? '0' : '1';
+    i.dataset.auto = (i.value || editando) ? '0' : '1';
     i.addEventListener('input', () => { i.dataset.auto = '0'; });
   });
 
@@ -147,7 +163,7 @@
 
     // Lote: si sale de un solo lote del depósito, lo envasado queda con el mismo lote y vencimiento.
     const lotes = [...new Map(salen.filter(l => l.lote_id).map(l => [l.lote_id, l])).values()];
-    if (lotes.length === 1) {
+    if (lotes.length === 1 && !editando) {
       document.querySelectorAll('#renglones tr').forEach(tr => {
         const lote = tr.querySelector('input[name=lote]'), vto = tr.querySelector('input[name=vencimiento]');
         if (lote && !lote.value && !lote.dataset.tocado && lotes[0].lote) lote.value = lotes[0].lote;
@@ -179,10 +195,11 @@
     linkNuevo.href = '{{ url_for("stock.producto_form") }}?empresa_id=' + id + '&volver=' + encodeURIComponent(location.pathname + '?empresa_id=' + id);
     if (!id) { productos = []; saldosInsumos = {}; saldosEnvases = {}; aviso.style.display = ''; }
     else {
+      // Al corregir un trasvaso, los saldos se muestran sin contar ese mismo trasvaso.
       const [r, rs, re] = await Promise.all([
-        fetch('{{ url_for("stock.api_productos") }}?empresa_id=' + id),
-        fetch('{{ url_for("stock.api_insumos") }}?empresa_id=' + id),
-        fetch('{{ url_for("trasvasos.api_envases") }}?empresa_id=' + id),
+        fetch('{{ url_for("stock.api_productos") }}?empresa_id=' + id + '{% if editando_egreso %}&excluir={{ editando_egreso }}{% endif %}'),
+        fetch('{{ url_for("stock.api_insumos") }}?empresa_id=' + id + '{% if editando_ingreso %}&excluir={{ editando_ingreso }}{% endif %}'),
+        fetch('{{ url_for("trasvasos.api_envases") }}?empresa_id=' + id + '{% if editando %}&excluir_trasvaso={{ editando.id }}{% endif %}'),
       ]);
       productos = await r.json();
       saldosInsumos = await rs.json();

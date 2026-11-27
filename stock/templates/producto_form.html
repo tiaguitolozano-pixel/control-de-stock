@@ -48,10 +48,18 @@
   {% if con_stock_inicial %}
   <div class="tarjeta" id="tarjeta-stock-inicial">
     <h2 style="margin-top:0">Stock inicial</h2>
+    {% if stock_inicial.cargado %}
+    <p class="ayuda" style="margin-top:0">Lo que había de este producto al empezar a usar el programa, una fila por lote (está en el remito
+      <a href="{{ url_for('stock.movimiento_detalle', movimiento_id=stock_inicial.movimiento_id) }}">STOCK INICIAL</a>).
+      Si algo está mal (la fecha, un lote, un vencimiento o una cantidad), corregilo acá y guardá. Para sacarlo, borrá las filas.</p>
+    {% else %}
     <p class="ayuda" style="margin-top:0">Lo que ya hay de este producto en el depósito, por ejemplo lo que figura en Cristal al empezar a usar
       este programa: una fila por lote. Se guarda como un ingreso con el remito "STOCK INICIAL". Si no hay nada, dejalo vacío.</p>
+    {% endif %}
     <div class="campo corto"><label for="si_fecha">Fecha</label>
       <input type="date" name="si_fecha" id="si_fecha" value="{{ stock_inicial.fecha }}"></div>
+    <p class="ayuda">La fecha desde la que ya estaba esta mercadería (por ejemplo, el día del conteo).
+      Ojo: no se puede sacar mercadería con fecha anterior, así que tiene que ser igual o anterior al primer egreso.</p>
     <div class="tabla">
     <table class="stock-inicial">
       <thead><tr><th>Lote</th><th>Vencimiento</th><th>Cantidad <span id="si-unidad"></span></th><th></th></tr></thead>
@@ -70,14 +78,18 @@
     </table>
     </div>
     <p style="margin:10px 0 0"><button type="button" class="boton secundario" id="si-agregar">+ Agregar otro lote</button></p>
+    {% if stock_inicial.compartido %}
+    <p class="ayuda">Este stock inicial está en un remito junto con otros productos (el que se cargó con Importar Excel). Si cambiás la fecha,
+      este producto pasa a tener su propio remito STOCK INICIAL y los demás quedan como están.</p>
+    {% endif %}
+    {% if stock_inicial.cargado and stock_inicial.con_remitos %}
+    <p class="ayuda">Este producto ya tiene otros remitos: al guardar se revisa que los egresos sigan teniendo stock en sus fechas.
+      Lo que se corrige queda anotado en el remito.</p>
+    {% endif %}
     <p class="ayuda" style="margin-bottom:0">Si un lote no tiene vencimiento, dejá la fecha vacía. Los pallets con etiqueta QR se arman después, en
       <a href="{{ url_for('deposito.pallets_armar') }}">Pallets → Armar pallets</a>. Para cargar muchos productos de una vez está
       <a href="{{ url_for('stock.importar') }}">Importar Excel</a>.</p>
   </div>
-  {% elif editando %}
-  <p class="ayuda">Este producto ya tiene remitos: su stock se cambia con un
-    <a href="{{ url_for('stock.movimiento_nuevo', tipo='ingreso', empresa_id=producto.empresa_id) }}">+ Ingreso</a> o un
-    <a href="{{ url_for('stock.movimiento_nuevo', tipo='egreso', empresa_id=producto.empresa_id) }}">− Egreso</a>.</p>
   {% endif %}
 
   <button class="boton">Guardar</button>

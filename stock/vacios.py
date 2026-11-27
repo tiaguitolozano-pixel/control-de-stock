@@ -60,22 +60,31 @@ def _nombres():
 # ----------------------------------------------------------------- saldos
 
 
-def saldos(empresa_id=None):
-    """{(empresa_id, envase_id, estado): saldo}, de una empresa o de todas."""
+def saldos(empresa_id=None, excluir_movimiento=None, excluir_trasvaso=None):
+    """{(empresa_id, envase_id, estado): saldo}, de una empresa o de todas.
+
+    excluir_movimiento / excluir_trasvaso: lo que no se cuenta (el remito o trasvaso que se está corrigiendo).
+    """
     sql = """SELECT empresa_id, envase_id, estado, SUM(cantidad) AS saldo FROM envase_movs
              WHERE anulado = 0 AND empresa_id IS NOT NULL"""
     params = []
     if empresa_id:
         sql += " AND empresa_id = ?"
         params.append(empresa_id)
+    if excluir_movimiento:
+        sql += " AND COALESCE(movimiento_id, 0) <> ?"
+        params.append(excluir_movimiento)
+    if excluir_trasvaso:
+        sql += " AND COALESCE(trasvaso_id, 0) <> ?"
+        params.append(excluir_trasvaso)
     filas = get_db().execute(sql + " GROUP BY empresa_id, envase_id, estado", params).fetchall()
     return {(r["empresa_id"], r["envase_id"], r["estado"]): round(r["saldo"], 6) for r in filas}
 
 
-def saldos_de(empresa_id):
+def saldos_de(empresa_id, excluir_movimiento=None, excluir_trasvaso=None):
     """{envase_id: {'VACIO': saldo, 'SUCIO': saldo}} de una empresa (para mostrar en los formularios)."""
     res = defaultdict(dict)
-    for (_, envase_id, estado), saldo in saldos(empresa_id).items():
+    for (_, envase_id, estado), saldo in saldos(empresa_id, excluir_movimiento, excluir_trasvaso).items():
         res[envase_id][estado] = saldo
     return dict(res)
 
@@ -173,6 +182,32 @@ def chequear(empresa_id, modo, renglones):
                 f"{nombre} {palabras(nombre, estado)[1]}: esta empresa tiene {_n(hay)} en el depósito y querés "
                 f"{'usar' if modo == 'TRASVASO' else 'sacar'} {_n(cantidad)}. {ayuda}"
             )
+    return errores
+
+
+def problemas_al_cambiar(empresa_id, modo, renglones, movimiento_id=None, trasvaso_id=None):
+    """Al corregir un remito o un trasvaso: con los envases nuevos, ningún saldo de la empresa puede quedar
+    negativo (o más negativo de lo que ya estaba)."""
+    actuales = saldos(empresa_id)
+    sin_este = saldos(empresa_id, excluir_movimiento=movimiento_id, excluir_trasvaso=trasvaso_id)
+    nuevos = defaultdict(float)
+    for eid, estado, cantidad in _con_signo(modo, renglones):
+        nuevos[(eid, estado)] += cantidad
+    claves = set(nuevos) | {(e, st) for (_, e, st) in actuales} | {(e, st) for (_, e, st) in sin_este}
+    nombres, errores = _nombres(), []
+    for eid, estado in sorted(claves):
+        hay = sin_este.get((empresa_id, eid, estado), 0)
+        queda = round(hay + nuevos.get((eid, estado), 0), 6)
+        if queda < -EPS and queda < actuales.get((empresa_id, eid, estado), 0) - EPS:
+            nombre = nombres[eid]
+            adjetivo = palabras(nombre, estado)[1]
+            if nuevos.get((eid, estado), 0) < 0:
+                errores.append(f"{nombre} {adjetivo}: sin contar este {'trasvaso' if trasvaso_id else 'remito'}, "
+                               f"esta empresa tiene {_n(hay)} en el depósito y querés "
+                               f"{'usar' if modo == 'TRASVASO' else 'sacar'} {_n(-nuevos[(eid, estado)])}.")
+            else:
+                errores.append(f"{nombre} {adjetivo}: con este cambio quedarían {_n(queda)} en el depósito, porque "
+                               "ya se usaron o salieron.")
     return errores
 
 

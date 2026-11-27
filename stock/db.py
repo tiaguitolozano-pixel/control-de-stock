@@ -252,6 +252,25 @@ MIGRACIONES = [
     CREATE INDEX IF NOT EXISTS idx_envase_movs_empresa ON envase_movs(empresa_id, envase_id, estado);
     CREATE INDEX IF NOT EXISTS idx_envase_movs_movimiento ON envase_movs(movimiento_id);
     """,
+    # 6: los remitos y trasvasos se pueden corregir o borrar; cada cambio queda anotado acá.
+    """
+    CREATE TABLE IF NOT EXISTS cambios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        creado_en TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        accion TEXT NOT NULL CHECK (accion IN ('EDITADO', 'BORRADO')),
+        -- Sin REFERENCES: un remito o trasvaso borrado ya no existe, pero su registro queda.
+        movimiento_id INTEGER,
+        trasvaso_id INTEGER,
+        empresa_id INTEGER,
+        tipo TEXT,
+        fecha TEXT,
+        remito TEXT,
+        -- Qué cambió (o qué tenía el remito borrado), un dato por renglón.
+        detalle TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_cambios_movimiento ON cambios(movimiento_id);
+    CREATE INDEX IF NOT EXISTS idx_cambios_trasvaso ON cambios(trasvaso_id);
+    """,
 ]
 
 
@@ -312,7 +331,8 @@ def init_db():
             raise
 
 
-# Stock = ingresos - egresos (sin contar remitos anulados).
+# Stock = ingresos - egresos (sin contar remitos anulados). {excluir}: un remito que no se cuenta (el que se
+# está corrigiendo, para mostrar lo que había sin él).
 SQL_STOCK = """
 SELECT p.id, p.codigo, p.descripcion, p.unidad, p.stock_minimo, p.activo, p.unidades_por_pallet,
        p.kilos_por_unidad, e.id AS empresa_id, e.nombre AS empresa,
@@ -322,12 +342,21 @@ SELECT p.id, p.codigo, p.descripcion, p.unidad, p.stock_minimo, p.activo, p.unid
 FROM productos p
 JOIN empresas e ON e.id = p.empresa_id
 LEFT JOIN movimiento_items i ON i.producto_id = p.id
-LEFT JOIN movimientos m ON m.id = i.movimiento_id AND m.anulado = 0
+LEFT JOIN movimientos m ON m.id = i.movimiento_id AND m.anulado = 0{excluir}
 """
 
 
-def stock_de_productos(empresa_id=None, buscar=None, solo_con_stock=False, producto_ids=None):
-    where, params = [], []
+def _excluir(excluir_movimiento):
+    """La condición para no contar un remito, y su parámetro."""
+    if excluir_movimiento:
+        return " AND m.id <> ?", [excluir_movimiento]
+    return "", []
+
+
+def stock_de_productos(empresa_id=None, buscar=None, solo_con_stock=False, producto_ids=None,
+                       excluir_movimiento=None):
+    condicion, params = _excluir(excluir_movimiento)
+    where = []
     if empresa_id:
         where.append("p.empresa_id = ?")
         params.append(empresa_id)
@@ -339,7 +368,7 @@ def stock_de_productos(empresa_id=None, buscar=None, solo_con_stock=False, produ
             return []
         where.append(f"p.id IN ({','.join('?' * len(producto_ids))})")
         params += list(producto_ids)
-    sql = SQL_STOCK
+    sql = SQL_STOCK.format(excluir=condicion)
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " GROUP BY p.id"
@@ -362,14 +391,15 @@ FROM lotes l
 JOIN productos p ON p.id = l.producto_id
 JOIN empresas e ON e.id = p.empresa_id
 LEFT JOIN movimiento_items i ON i.lote_id = l.id
-LEFT JOIN movimientos m ON m.id = i.movimiento_id AND m.anulado = 0
+LEFT JOIN movimientos m ON m.id = i.movimiento_id AND m.anulado = 0{excluir}
 """
 
 
 def stock_de_lotes(empresa_id=None, buscar=None, producto_id=None, lote_ids=None,
-                   solo_con_stock=True, vence_hasta=None, lote=None):
+                   solo_con_stock=True, vence_hasta=None, lote=None, excluir_movimiento=None):
     """Stock por lote. Ordenado por vencimiento (primero lo que vence antes)."""
-    where, params = [], []
+    condicion, params = _excluir(excluir_movimiento)
+    where = []
     if lote:
         where.append("l.lote LIKE ?")
         params.append(f"%{lote}%")
@@ -390,7 +420,7 @@ def stock_de_lotes(empresa_id=None, buscar=None, producto_id=None, lote_ids=None
             return []
         where.append(f"l.id IN ({','.join('?' * len(lote_ids))})")
         params += list(lote_ids)
-    sql = SQL_LOTES
+    sql = SQL_LOTES.format(excluir=condicion)
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " GROUP BY l.id"

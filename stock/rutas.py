@@ -26,17 +26,19 @@ from .db import (
     stock_de_lotes,
     stock_de_productos,
 )
+from . import correcciones as cr
 from . import fotos as ft
 from . import insumos as ins
 from . import pallets as pl
 from . import remitos as rm
 from . import vacios
 from .excel import armar_excel
-from .formato import cantidad_pallets, formato_numero, singular
-from .historial import libro_por_lote
+from .formato import cantidad_pallets, formato_fecha, formato_numero, singular
+from .historial import libro_por_lote, lotes_con_saldo_negativo
 from .servicios import (
     CAMPOS_TRANSPORTE,
     ENCABEZADOS_PLANTILLA,
+    buscar_lote,
     importar_conteo,
     leer_planilla,
     normalizar_patente,
@@ -172,7 +174,7 @@ def inicio():
     resumen["envases_cliente"] = vacios.totales_por_tipo(f["empresa_id"])
     return render_template(
         "inicio.html", filas=filas, lotes=lotes, filtros=f, empresas=_empresas(), resumen=resumen,
-        vtos=proximo_vencimiento_por_producto(f["empresa_id"]),
+        vtos=proximo_vencimiento_por_producto(f["empresa_id"]), negativos=lotes_con_saldo_negativo(f["empresa_id"]),
     )
 
 
@@ -323,13 +325,57 @@ def productos():
 REMITO_STOCK_INICIAL = "STOCK INICIAL"
 
 
-def _tiene_remitos(producto_id):
-    """Si el producto ya está en algún remito que no se anuló: entonces su stock se cambia con ingresos y egresos."""
+def _tiene_remitos(producto_id, sin=None):
+    """Si el producto está en algún remito que no se anuló (sin contar el remito `sin`)."""
     return get_db().execute(
         """SELECT 1 FROM movimiento_items i JOIN movimientos m ON m.id = i.movimiento_id
-           WHERE i.producto_id = ? AND m.anulado = 0 LIMIT 1""",
-        (producto_id,),
+           WHERE i.producto_id = ? AND m.anulado = 0 AND m.id <> ? LIMIT 1""",
+        (producto_id, sin or 0),
     ).fetchone() is not None
+
+
+def _stock_inicial_de(producto_id):
+    """El remito STOCK INICIAL del producto (el primero que no está anulado), o None.
+
+    'otros' cuenta los renglones de otros productos: el remito que arma Importar Excel tiene los de toda la empresa.
+    """
+    if not producto_id:
+        return None
+    return get_db().execute(
+        """SELECT m.*, (SELECT COUNT(*) FROM movimiento_items o
+                        WHERE o.movimiento_id = m.id AND o.producto_id <> ?) AS otros
+           FROM movimientos m
+           WHERE m.tipo = 'INGRESO' AND m.anulado = 0 AND m.trasvaso_id IS NULL AND UPPER(TRIM(m.remito)) = ?
+             AND EXISTS (SELECT 1 FROM movimiento_items i WHERE i.movimiento_id = m.id AND i.producto_id = ?)
+           ORDER BY m.fecha, m.id LIMIT 1""",
+        (producto_id, REMITO_STOCK_INICIAL, producto_id),
+    ).fetchone()
+
+
+def _renglones_stock_inicial(si, producto_id):
+    """Los lotes del stock inicial del producto, para el formulario."""
+    return [
+        {"lote": r["lote"], "vencimiento": r["vencimiento"] or "", "cantidad": formato_numero(r["cantidad"], 6)}
+        for r in get_db().execute(
+            """SELECT l.lote, l.vencimiento, i.cantidad FROM movimiento_items i JOIN lotes l ON l.id = i.lote_id
+               WHERE i.movimiento_id = ? AND i.producto_id = ? ORDER BY i.id""",
+            (si["id"], producto_id),
+        )
+    ]
+
+
+def _fecha_para_stock_inicial(producto_id):
+    """La fecha que se propone para un stock inicial nuevo: la del primer remito del producto (así ningún egreso
+    queda antes de la mercadería), o la de hoy."""
+    hoy = date.today().isoformat()
+    if not producto_id:
+        return hoy
+    primera = get_db().execute(
+        """SELECT MIN(m.fecha) FROM movimiento_items i JOIN movimientos m ON m.id = i.movimiento_id
+           WHERE i.producto_id = ? AND m.anulado = 0""",
+        (producto_id,),
+    ).fetchone()[0]
+    return min(primera, hoy) if primera else hoy
 
 
 def _leer_stock_inicial():
@@ -343,6 +389,116 @@ def _leer_stock_inicial():
     return renglones
 
 
+def _texto_stock_inicial(items, unidad):
+    """'132,5 bolsas en 2 lotes'."""
+    total = sum(items.values())
+    unidad = (singular(unidad) if total == 1 else unidad).lower()
+    return f"{formato_numero(total)} {unidad} en {len(items)} {'lote' if len(items) == 1 else 'lotes'}"
+
+
+def _avisar_pallets(creados, borrados, etiquetas="con el botón de abajo"):
+    """Después de corregir un ingreso: los pallets que se armaron o se borraron solos."""
+    if creados:
+        flash(f"Hay pallets nuevos: imprimí sus etiquetas {etiquetas}.", "aviso")
+    if borrados:
+        uno = len(borrados) == 1
+        flash(f"{'El pallet' if uno else 'Los pallets'} {', '.join(pl.codigo_pallet(p) for p in borrados)} ya no "
+              f"{'hacía' if uno else 'hacían'} falta y se {'borró' if uno else 'borraron'}: si "
+              f"tenía{'' if uno else 'n'} etiqueta pegada, sacala.", "aviso")
+
+
+def _avisar_negativos(empresa_id, producto_id=None, lote_ids=()):
+    """Después de guardar: si algún lote sigue quedando negativo en alguna fecha (un error de antes), se avisa."""
+    for n in lotes_con_saldo_negativo(empresa_id):
+        if n["producto_id"] == producto_id or n["lote_id"] in lote_ids:
+            flash(f"Ojo: el saldo de {n['codigo']} ({('lote ' + n['lote']) if n['lote'] else 'sin lote'}) sigue "
+                  f"quedando negativo desde el {formato_fecha(n['desde'])} (llega a {formato_numero(n['minimo'])} "
+                  f"{n['unidad'].lower()}): hay egresos con fecha anterior a la mercadería. Revisá la fecha del stock "
+                  "inicial o la de esos egresos.", "aviso")
+
+
+def _guardar_stock_inicial(producto, si, fecha, items, vencimientos):
+    """Carga o corrige el stock inicial del producto: sus renglones del remito STOCK INICIAL.
+
+    producto: {id, empresa_id, codigo, unidad}. si: el remito STOCK INICIAL que ya tenía, o None.
+    items y vencimientos: lo que devolvió revisar_renglones (vacíos para sacar el stock inicial).
+    Si el remito tiene otros productos (el de Importar Excel) y cambia la fecha, este producto pasa a un remito
+    propio y los otros no se tocan. Devuelve (errores, texto para el mensaje, (pallets armados, pallets
+    borrados)). No hace commit: si hay errores, hay que deshacer (rollback).
+    """
+    db = get_db()
+    pid = producto["id"]
+    items = {(pid, lote): c for (_, lote), c in items.items()}
+    vencimientos = {(pid, lote): v for (_, lote), v in vencimientos.items()}
+    if si is None:
+        if not items:
+            return [], "", ([], [])
+        registrar_movimiento("INGRESO", producto["empresa_id"], fecha, REMITO_STOCK_INICIAL,
+                             "Stock inicial, cargado con el producto", rm.lineas_de_ingreso(items, vencimientos))
+        return [], (f" Stock inicial: {_texto_stock_inicial(items, producto['unidad'])} "
+                    f"(remito {REMITO_STOCK_INICIAL})."), ([], [])
+
+    antes = cr.foto(si["id"], pid)
+    lotes_viejos = {i["lote_id"] for i in antes["items"]}
+    existentes = {l["id"] for l in (buscar_lote(pid, lote) for lote, _ in vencimientos.values()) if l}
+    estado = cr.Estado(lotes_viejos | existentes)
+    m, notas = si, []
+    if items and fecha != si["fecha"]:
+        if si["otros"]:
+            nuevo = db.execute(
+                "INSERT INTO movimientos (tipo, fecha, remito, empresa_id, observaciones) VALUES ('INGRESO',?,?,?,?)",
+                (fecha, si["remito"], si["empresa_id"], si["observaciones"]),
+            ).lastrowid
+            mios = [r[0] for r in db.execute(
+                "SELECT id FROM movimiento_items WHERE movimiento_id = ? AND producto_id = ?", (si["id"], pid))]
+            marcas = ",".join("?" * len(mios))
+            db.execute(f"UPDATE movimiento_items SET movimiento_id = ? WHERE id IN ({marcas})", [nuevo, *mios])
+            db.execute(
+                f"""UPDATE pallets SET movimiento_id = ? WHERE movimiento_id = ?
+                    AND id IN (SELECT pallet_id FROM pallet_movs WHERE item_id IN ({marcas}))""",
+                [nuevo, si["id"], *mios],
+            )
+            cr.anotar_remito("EDITADO", cr.foto(si["id"]),
+                             f"Los renglones de {producto['codigo']} pasaron a un remito {si['remito']} propio, con "
+                             f"fecha {formato_fecha(fecha)} (se cambió la fecha de su stock inicial desde el producto).")
+            notas.append(f"Antes estaba en el remito {si['remito']} del {formato_fecha(si['fecha'])}, junto con otros "
+                         "productos: pasó a un remito propio.")
+            m = db.execute("SELECT * FROM movimientos WHERE id = ?", (nuevo,)).fetchone()
+        else:
+            db.execute("UPDATE movimientos SET fecha = ? WHERE id = ?", (fecha, si["id"]))
+            db.execute("UPDATE envase_movs SET fecha = ? WHERE movimiento_id = ?", (fecha, si["id"]))
+            m = db.execute("SELECT * FROM movimientos WHERE id = ?", (si["id"],)).fetchone()
+    lineas = rm.lineas_de_ingreso(items, vencimientos, corrigiendo=m["id"])
+    errores, creados, borrados = cr.aplicar_items(m, lineas, solo_producto=pid)
+    if not errores:
+        errores = estado.problemas({lid for _, lid, _ in lineas}, inicio="Stock inicial: ",
+                                   fecha=fecha if items else None)
+    if errores:
+        return errores, "", ([], [])
+    cr.limpiar_lotes(lotes_viejos)
+    cambios = cr.diferencias(antes, cr.foto(m["id"], pid)) + _texto_pallets(creados, borrados)
+    if not cambios:
+        return [], "", ([], [])
+    queda_algo = db.execute(
+        """SELECT EXISTS (SELECT 1 FROM movimiento_items WHERE movimiento_id = :m)
+               OR EXISTS (SELECT 1 FROM movimiento_insumos WHERE movimiento_id = :m)
+               OR EXISTS (SELECT 1 FROM envase_movs WHERE movimiento_id = :m)
+               OR EXISTS (SELECT 1 FROM movimiento_fotos WHERE movimiento_id = :m)""",
+        {"m": m["id"]},
+    ).fetchone()[0]
+    if not queda_algo:
+        # Era un remito con el stock inicial de este producto solo: se borra (y queda anotado).
+        cr.anotar_remito("BORRADO", antes,
+                         cr.texto_remito(antes) + "\nSe borró desde el producto: quedó sin stock inicial.")
+        cr.borrar_movimiento(m)
+        return [], " Se borró su stock inicial.", (creados, borrados)
+    cr.anotar_remito("EDITADO", cr.foto(m["id"]), "\n".join(
+        [f"Stock inicial de {producto['codigo']}, corregido desde el producto:"] + notas + cambios))
+    if not items:
+        return [], " Se quitó su stock inicial.", (creados, borrados)
+    return [], f" Stock inicial corregido: {_texto_stock_inicial(items, producto['unidad'])}.", (creados, borrados)
+
+
 @bp.route("/productos/nuevo", methods=["GET", "POST"])
 @bp.route("/productos/<int:producto_id>/editar", methods=["GET", "POST"])
 def producto_form(producto_id=None):
@@ -353,10 +509,18 @@ def producto_form(producto_id=None):
         if producto is None:
             abort(404)
     volver = (request.form.get("volver") if request.method == "POST" else request.args.get("volver")) or ""
-    # El stock inicial se carga con el producto, mientras no tenga remitos. Si se crea desde un remito, no:
-    # lo que llega ya está en ese remito.
-    con_stock_inicial = not volver and not (producto and _tiene_remitos(producto_id))
-    stock_inicial = {"fecha": date.today().isoformat(), "renglones": []}
+    # El stock inicial se carga y se corrige en el producto. Si el producto se crea desde un remito, no: lo que
+    # llega ya está en ese remito.
+    con_stock_inicial = bool(producto) or not volver
+    si = _stock_inicial_de(producto_id) if producto else None
+    stock_inicial = {
+        "fecha": si["fecha"] if si else _fecha_para_stock_inicial(producto_id),
+        "renglones": _renglones_stock_inicial(si, producto_id) if si else [],
+        "cargado": si is not None,
+        "compartido": bool(si and si["otros"]),
+        "movimiento_id": si["id"] if si else None,
+        "con_remitos": bool(producto) and _tiene_remitos(producto_id, sin=si["id"] if si else None),
+    }
     if request.method == "POST":
         unidad = _texto("unidad")
         if unidad == "__otro__":
@@ -390,14 +554,14 @@ def producto_form(producto_id=None):
             errores.append("El stock mínimo no puede ser negativo.")
         items, vencimientos = {}, {}
         if con_stock_inicial:
-            stock_inicial = {"fecha": _texto("si_fecha"), "renglones": _leer_stock_inicial()}
+            stock_inicial.update(fecha=_texto("si_fecha"), renglones=_leer_stock_inicial())
         if stock_inicial["renglones"]:
             if not _fecha_valida(stock_inicial["fecha"]):
                 errores.append("Stock inicial: la fecha no es válida.")
             pid = producto_id or -1  # el producto nuevo todavía no tiene número
             items, vencimientos, errores_si = rm.revisar_renglones(
                 "INGRESO", [dict(r, producto_id=pid) for r in stock_inicial["renglones"]],
-                {pid: {"id": pid, "codigo": "Stock inicial"}},
+                {pid: {"id": pid, "codigo": "Stock inicial"}}, corrigiendo=si["id"] if si else None,
             )
             errores += errores_si
         if not errores:
@@ -418,28 +582,28 @@ def producto_form(producto_id=None):
                         tuple(datos.values()),
                     ).lastrowid
                 asegurar_envase(datos["unidad"])
-                mensaje = "Producto guardado."
-                if items:
-                    # El stock inicial queda como un ingreso del producto, con sus lotes.
-                    items = {(producto_id, lote): c for (_, lote), c in items.items()}
-                    vencimientos = {(producto_id, lote): v for (_, lote), v in vencimientos.items()}
-                    registrar_movimiento(
-                        "INGRESO", datos["empresa_id"], stock_inicial["fecha"], REMITO_STOCK_INICIAL,
-                        "Stock inicial, cargado con el producto", rm.lineas_de_ingreso(items, vencimientos),
+                texto_si, pallets_si = "", ([], [])
+                if con_stock_inicial:
+                    # El stock inicial queda como un ingreso del producto, con sus lotes (remito STOCK INICIAL).
+                    errores, texto_si, pallets_si = _guardar_stock_inicial(
+                        {"id": producto_id, "empresa_id": datos["empresa_id"], "codigo": datos["codigo"],
+                         "unidad": datos["unidad"]},
+                        si, stock_inicial["fecha"], items, vencimientos,
                     )
-                    total = sum(items.values())
-                    unidad = singular(datos["unidad"]) if total == 1 else datos["unidad"]
-                    mensaje += (f" Stock inicial: {formato_numero(total)} {unidad.lower()} en "
-                                f"{len(items)} {'lote' if len(items) == 1 else 'lotes'} "
-                                f"(remito {REMITO_STOCK_INICIAL}).")
-                db.commit()
-                flash(mensaje, "ok")
-                destino = request.form.get("volver") or url_for(
-                    "stock.productos", empresa_id=datos["empresa_id"]
-                )
-                if not destino.startswith("/"):
-                    destino = url_for("stock.productos")
-                return redirect(destino)
+                if errores:
+                    db.rollback()
+                    producto_id = producto["id"] if producto else None
+                else:
+                    db.commit()
+                    flash("Producto guardado." + texto_si, "ok")
+                    _avisar_pallets(*pallets_si, etiquetas="desde el remito STOCK INICIAL")
+                    _avisar_negativos(datos["empresa_id"], producto_id=producto_id)
+                    destino = request.form.get("volver") or url_for(
+                        "stock.productos", empresa_id=datos["empresa_id"]
+                    )
+                    if not destino.startswith("/"):
+                        destino = url_for("stock.productos")
+                    return redirect(destino)
             except sqlite3.IntegrityError:
                 db.rollback()
                 producto_id = producto["id"] if producto else None
@@ -532,12 +696,15 @@ def producto_ficha(producto_id):
 
 @bp.route("/api/productos")
 def api_productos():
+    """Los productos de la empresa con su stock por lote. excluir: un remito que no se cuenta (al corregir un
+    egreso, para que se vea lo que había sin él)."""
     empresa_id = _int_o_none(request.args.get("empresa_id"))
     if not empresa_id:
         return jsonify([])
-    filas = stock_de_productos(empresa_id)
+    excluir = _int_o_none(request.args.get("excluir"))
+    filas = stock_de_productos(empresa_id, excluir_movimiento=excluir)
     lotes = defaultdict(list)
-    for l in stock_de_lotes(empresa_id=empresa_id):
+    for l in stock_de_lotes(empresa_id=empresa_id, excluir_movimiento=excluir):
         lotes[l["producto_id"]].append(
             {"id": l["id"], "lote": l["lote"], "vencimiento": l["vencimiento"], "stock": l["stock"]}
         )
@@ -623,7 +790,8 @@ def _renglones_movimientos(f, limite=LIMITE_RENGLONES):
     Si hay más que el límite, quedan los más recientes.
     """
     where, params = _where_movimientos(f, con_anulados=f["ver_anulados"])
-    sql = SQL_RENGLONES + where + " ORDER BY m.fecha DESC, m.id DESC, i.id DESC"
+    # Dentro de un día, primero los ingresos (ver historial.py).
+    sql = SQL_RENGLONES + where + " ORDER BY m.fecha DESC, m.tipo = 'EGRESO' DESC, m.id DESC, i.id DESC"
     if limite:
         sql += f" LIMIT {int(limite)}"
     return get_db().execute(sql, params).fetchall()[::-1]
@@ -803,14 +971,91 @@ def _tipos_contenedor():
     return usados + [t for t in TIPOS_CONTENEDOR if t.lower() not in vistos]
 
 
-def _form_movimiento(tipo, form, renglones, mostrar_repetido=False, textos_insumos=None, textos_envases=None):
+def _form_movimiento(tipo, form, renglones, mostrar_repetido=False, textos_insumos=None, textos_envases=None,
+                     editando=None):
+    """El formulario de un remito nuevo o, con editando (el remito guardado), el de una corrección."""
     return render_template(
-        "movimiento_form.html", tipo=tipo, tipos=TIPOS, empresas=_empresas(solo_activas=True),
+        "movimiento_form.html", tipo=tipo, tipos=TIPOS, empresas=_empresas(solo_activas=not editando),
         form=form, renglones=renglones, mostrar_repetido=mostrar_repetido,
         previos=_transportes_previos(), insumos=ins.lista(), campos_insumo=ins.campos,
         textos_insumos=textos_insumos or {}, envases=vacios.tipos_para_cargar(), campo_envase=vacios.campo,
-        columnas_envases=vacios.COLUMNAS[tipo], textos_envases=textos_envases or {},
+        columnas_envases=vacios.COLUMNAS[tipo], textos_envases=textos_envases or {}, editando=editando,
     )
+
+
+def _leer_remito(tipo, m=None):
+    """Lee y revisa el formulario de un remito: uno nuevo, o uno guardado que se está corrigiendo (m).
+
+    Devuelve (d, errores, mostrar_repetido). d tiene lo leído, para guardarlo o para volver a mostrar el
+    formulario; si no hay errores también trae los renglones revisados (items y vencimientos).
+    """
+    db = get_db()
+    empresa_id = m["empresa_id"] if m else _int_o_none(request.form.get("empresa_id"))
+    d = {
+        "empresa_id": empresa_id, "fecha": _texto("fecha"), "remito": _texto("remito"),
+        "observaciones": _texto("observaciones"),
+        "transporte": normalizar_transporte({c: _texto(c) for c in CAMPOS_TRANSPORTE}),
+        "renglones": rm.leer_renglones(request.form),
+    }
+    d["insumos"], errores_insumos, d["textos_insumos"] = ins.leer_formulario(request.form)
+    d["envases"], errores_envases, d["textos_envases"] = vacios.leer_formulario(request.form, tipo)
+    d["fotos"], errores_fotos = ft.leer_subidas(request.files.getlist("fotos"))
+
+    errores = []
+    if not empresa_id:
+        errores.append("Elegí la empresa.")
+    if not _fecha_valida(d["fecha"]):
+        errores.append("La fecha no es válida.")
+    if not d["remito"]:
+        errores.append("El número de remito es obligatorio.")
+    if not d["renglones"] and not d["insumos"] and not d["envases"] and not errores_insumos and not errores_envases:
+        errores.append("Cargá al menos un producto (o solo insumos o envases vacíos, por ejemplo una devolución "
+                       "de pallets o los tambores vacíos que manda el cliente).")
+    errores += errores_insumos + errores_envases + errores_fotos
+    if m:
+        # Al corregir, lo que tenía el mismo remito no cuenta: se revisa cómo quedaría con lo nuevo.
+        errores += ins.problemas_al_cambiar(empresa_id, tipo, d["insumos"] + _insumos_que_quedan(m), m["id"])
+        errores += vacios.problemas_al_cambiar(empresa_id, tipo, d["envases"] + _envases_que_quedan(m),
+                                               movimiento_id=m["id"])
+    else:
+        if tipo == "EGRESO" and empresa_id and d["insumos"]:
+            errores += ins.chequear_egreso(empresa_id, d["insumos"])
+        if tipo == "EGRESO" and empresa_id and d["envases"]:
+            errores += vacios.chequear(empresa_id, tipo, d["envases"])
+
+    d["productos"] = productos = rm.productos_de_empresa(empresa_id)
+    d["items"], d["vencimientos"], errores_renglones = rm.revisar_renglones(
+        tipo, d["renglones"], productos, corrigiendo=m["id"] if m else None)
+    errores += errores_renglones
+    if tipo == "EGRESO" and not errores:
+        errores += rm.chequear_stock(d["items"], productos, d["fecha"], excluir=[m["id"]] if m else ())
+
+    mostrar_repetido = False
+    cambia_numero = not m or d["remito"].lower() != (m["remito"] or "").lower()
+    if tipo == "INGRESO" and empresa_id and d["remito"] and cambia_numero and not errores:
+        repetido = db.execute(
+            "SELECT id FROM movimientos WHERE tipo = ? AND empresa_id = ? AND remito = ? AND anulado = 0 AND id <> ?",
+            (tipo, empresa_id, d["remito"], m["id"] if m else 0),
+        ).fetchone()
+        if repetido and request.form.get("confirmar_repetido") != "1":
+            mostrar_repetido = True
+            errores.append(
+                "Ya hay un ingreso con ese número de remito para esta empresa. "
+                "Si es correcto, marcá la casilla 'Cargar igual' y guardá de nuevo."
+            )
+    return d, errores, mostrar_repetido
+
+
+def _mostrar_de_nuevo(tipo, d, errores, mostrar_repetido, m=None):
+    for e in dict.fromkeys(errores):  # sin repetidos
+        flash(e, "error")
+    if d["fotos"]:
+        flash("Las fotos no se guardaron: volvé a elegirlas antes de guardar.", "aviso")
+    form = {"empresa_id": d["empresa_id"], "fecha": d["fecha"], "remito": d["remito"],
+            "observaciones": d["observaciones"], "crear_pallets": request.form.get("crear_pallets", ""),
+            **d["transporte"]}
+    return _form_movimiento(tipo, form, d["renglones"], mostrar_repetido, d["textos_insumos"], d["textos_envases"],
+                            editando=m)
 
 
 @bp.route("/movimientos/nuevo/<tipo>", methods=["GET", "POST"])
@@ -827,74 +1072,25 @@ def movimiento_nuevo(tipo):
         )
 
     db = get_db()
-    empresa_id = _int_o_none(request.form.get("empresa_id"))
-    fecha = _texto("fecha")
-    remito = _texto("remito")
-    observaciones = _texto("observaciones")
-    transporte = normalizar_transporte({c: _texto(c) for c in CAMPOS_TRANSPORTE})
-    renglones = rm.leer_renglones(request.form)
-
-    insumos, errores_insumos, textos_insumos = ins.leer_formulario(request.form)
-    envases, errores_envases, textos_envases = vacios.leer_formulario(request.form, tipo)
-    fotos, errores_fotos = ft.leer_subidas(request.files.getlist("fotos"))
-
-    errores = []
-    if not empresa_id:
-        errores.append("Elegí la empresa.")
-    if not _fecha_valida(fecha):
-        errores.append("La fecha no es válida.")
-    if not remito:
-        errores.append("El número de remito es obligatorio.")
-    if not renglones and not insumos and not envases and not errores_insumos and not errores_envases:
-        errores.append("Cargá al menos un producto (o solo insumos o envases vacíos, por ejemplo una devolución "
-                       "de pallets o los tambores vacíos que manda el cliente).")
-    errores += errores_insumos + errores_envases + errores_fotos
-    if tipo == "EGRESO" and empresa_id and insumos:
-        errores += ins.chequear_egreso(empresa_id, insumos)
-    if tipo == "EGRESO" and empresa_id and envases:
-        errores += vacios.chequear(empresa_id, tipo, envases)
-
-    productos = rm.productos_de_empresa(empresa_id)
-    items, vencimientos, errores_renglones = rm.revisar_renglones(tipo, renglones, productos)
-    errores += errores_renglones
-    if tipo == "EGRESO" and not errores:
-        errores += rm.chequear_stock(items, productos)
-
-    mostrar_repetido = False
-    if tipo == "INGRESO" and empresa_id and remito and not errores:
-        repetido = db.execute(
-            "SELECT id FROM movimientos WHERE tipo = ? AND empresa_id = ? AND remito = ? AND anulado = 0",
-            (tipo, empresa_id, remito),
-        ).fetchone()
-        if repetido and request.form.get("confirmar_repetido") != "1":
-            mostrar_repetido = True
-            errores.append(
-                "Ya hay un ingreso con ese número de remito para esta empresa. "
-                "Si es correcto, marcá la casilla 'Cargar igual' y guardá de nuevo."
-            )
-
+    d, errores, mostrar_repetido = _leer_remito(tipo)
     if errores:
-        for e in dict.fromkeys(errores):  # sin repetidos
-            flash(e, "error")
-        if fotos:
-            flash("Las fotos no se guardaron: volvé a elegirlas antes de guardar.", "aviso")
-        form = {"empresa_id": empresa_id, "fecha": fecha, "remito": remito, "observaciones": observaciones,
-                "crear_pallets": request.form.get("crear_pallets", ""), **transporte}
-        return _form_movimiento(tipo, form, renglones, mostrar_repetido, textos_insumos, textos_envases)
+        return _mostrar_de_nuevo(tipo, d, errores, mostrar_repetido)
 
+    empresa_id, remito = d["empresa_id"], d["remito"]
     plan_pallets = {}
     if tipo == "INGRESO":
-        lineas = rm.lineas_de_ingreso(items, vencimientos)
+        lineas = rm.lineas_de_ingreso(d["items"], d["vencimientos"])
     else:
-        lineas, plan_pallets = rm.lineas_de_egreso(items, productos)
-    mid = registrar_movimiento(tipo, empresa_id, fecha, remito, observaciones, lineas, transporte, insumos)
-    vacios.registrar(empresa_id, fecha, tipo, envases, movimiento_id=mid)
+        lineas, plan_pallets = rm.lineas_de_egreso(d["items"], d["productos"])
+    mid = registrar_movimiento(tipo, empresa_id, d["fecha"], remito, d["observaciones"], lineas, d["transporte"],
+                               d["insumos"])
+    vacios.registrar(empresa_id, d["fecha"], tipo, d["envases"], movimiento_id=mid)
     avisos, creados = [], []
     if tipo == "INGRESO" and request.form.get("crear_pallets") == "1":
         creados, avisos = pl.crear_pallets_de_ingreso(mid)
     elif plan_pallets:
         pl.registrar_salida_de_pallets(mid, plan_pallets)
-    cantidad_fotos = ft.guardar(mid, fotos)
+    cantidad_fotos = ft.guardar(mid, d["fotos"])
     db.commit()
     mensaje = f"{TIPOS[tipo]} guardado (remito {remito})."
     if cantidad_fotos:
@@ -959,7 +1155,7 @@ def movimiento_detalle(movimiento_id):
                            usados=usados, armados=sorted(armados, key=lambda p: p["id"]),
                            insumos=ins.de_movimiento(movimiento_id), nombre_insumo=ins.nombre_renglon,
                            envases=vacios.de_movimiento(movimiento_id), fotos=ft.de_movimiento(movimiento_id),
-                           trasvaso=trasvaso)
+                           trasvaso=trasvaso, cambios=cr.cambios(movimiento_id=movimiento_id))
 
 
 @bp.route("/movimientos/<int:movimiento_id>/anular", methods=["POST"])
@@ -988,6 +1184,186 @@ def movimiento_anular(movimiento_id):
     db.commit()
     flash("Remito anulado. El stock se recalculó.", "ok")
     return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))
+
+
+# ------------------------------------------------------- corregir o borrar un remito
+
+
+def _insumos_que_quedan(m):
+    """Los insumos del remito que no están en el formulario (tipos desactivados): no se tocan al corregir."""
+    activos = [i["id"] for i in ins.lista()]
+    return [(r["insumo_id"], r["propietario"], r["cantidad"]) for r in get_db().execute(
+        f"""SELECT insumo_id, propietario, cantidad FROM movimiento_insumos WHERE movimiento_id = ?
+            AND insumo_id NOT IN ({','.join('?' * len(activos)) or 'NULL'})""",
+        [m["id"], *activos],
+    )]
+
+
+def _envases_que_quedan(m):
+    """Los envases del remito que no están en el formulario (tipos que ya no llevan la cuenta): no se tocan."""
+    tipos = [e["id"] for e in vacios.tipos_para_cargar()]
+    return [(r["envase_id"], r["estado"], abs(r["cantidad"])) for r in get_db().execute(
+        f"""SELECT envase_id, estado, SUM(cantidad) AS cantidad FROM envase_movs
+            WHERE movimiento_id = ? AND anulado = 0 AND envase_id NOT IN ({','.join('?' * len(tipos)) or 'NULL'})
+            GROUP BY envase_id, estado""",
+        [m["id"], *tipos],
+    )]
+
+
+def _datos_para_editar(m):
+    """El formulario de un remito guardado: (form, renglones, textos de insumos, textos de envases)."""
+    db = get_db()
+    form = {"empresa_id": m["empresa_id"], "fecha": m["fecha"], "remito": m["remito"],
+            "observaciones": m["observaciones"] or "", **{c: m[c] or "" for c in CAMPOS_TRANSPORTE}}
+    renglones = [
+        {"producto_id": r["producto_id"], "lote_id": r["lote_id"], "lote": r["lote"],
+         "vencimiento": r["vencimiento"] or "", "cantidad": formato_numero(r["cantidad"], 6)}
+        for r in db.execute(
+            """SELECT i.producto_id, i.lote_id, i.cantidad, l.lote, l.vencimiento FROM movimiento_items i
+               JOIN lotes l ON l.id = i.lote_id WHERE i.movimiento_id = ? ORDER BY i.id""",
+            (m["id"],),
+        )
+    ]
+    textos_insumos = defaultdict(float)
+    for r in ins.de_movimiento(m["id"]):
+        campo = f"ins_{r['insumo_id']}_{r['propietario']}" if r["propietario"] else f"ins_{r['insumo_id']}"
+        textos_insumos[campo] += r["cantidad"]
+    textos_envases = {
+        vacios.campo(r["envase_id"], r["estado"]): formato_numero(abs(r["cantidad"]), 6)
+        for r in db.execute(
+            """SELECT envase_id, estado, SUM(cantidad) AS cantidad FROM envase_movs
+               WHERE movimiento_id = ? AND anulado = 0 GROUP BY envase_id, estado""",
+            (m["id"],),
+        ) if abs(r["cantidad"]) > 1e-9
+    }
+    return form, renglones, {k: formato_numero(v, 6) for k, v in textos_insumos.items()}, textos_envases
+
+
+def _texto_pallets(creados, borrados):
+    lineas = []
+    if creados:
+        lineas.append(("Se armó el pallet " if len(creados) == 1 else "Se armaron los pallets ")
+                      + ", ".join(pl.codigo_pallet(p) for p in creados))
+    if borrados:
+        lineas.append(("Se borró el pallet " if len(borrados) == 1 else "Se borraron los pallets ")
+                      + ", ".join(pl.codigo_pallet(p) for p in borrados) + " (ya no hacía falta)")
+    return lineas
+
+
+@bp.route("/movimientos/<int:movimiento_id>/editar", methods=["GET", "POST"])
+def movimiento_editar(movimiento_id):
+    m = _movimiento_o_404(movimiento_id)
+    if m["trasvaso_id"]:
+        flash("Este remito es parte de un trasvaso: se corrige desde el trasvaso.", "aviso")
+        return redirect(url_for("trasvasos.trasvaso_detalle", trasvaso_id=m["trasvaso_id"]))
+    if m["anulado"]:
+        flash("Este remito está anulado: no se puede editar. Si se cargó por error, podés borrarlo.", "error")
+        return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))
+    tipo = m["tipo"]
+    if request.method == "GET":
+        form, renglones, textos_insumos, textos_envases = _datos_para_editar(m)
+        return _form_movimiento(tipo, form, renglones, False, textos_insumos, textos_envases, editando=m)
+
+    d, errores, mostrar_repetido = _leer_remito(tipo, m)
+    if errores:
+        return _mostrar_de_nuevo(tipo, d, errores, mostrar_repetido, m)
+    db = get_db()
+    antes = cr.foto(movimiento_id)
+    lotes_viejos = cr.lotes_de([movimiento_id])
+    if tipo == "INGRESO":
+        existentes = {l["id"] for l in (buscar_lote(pid, lote) for (pid, _), (lote, _) in d["vencimientos"].items()) if l}
+    else:
+        existentes = {lid for _, lid in d["items"]}
+    estado = cr.Estado(lotes_viejos | existentes)
+    try:
+        t = {c: d["transporte"].get(c) or None for c in CAMPOS_TRANSPORTE}
+        db.execute(
+            f"""UPDATE movimientos SET fecha = ?, remito = ?, observaciones = ?, {", ".join(c + " = ?" for c in CAMPOS_TRANSPORTE)}
+                WHERE id = ?""",
+            (d["fecha"], d["remito"], d["observaciones"] or None, *(t[c] for c in CAMPOS_TRANSPORTE), movimiento_id),
+        )
+        if tipo == "INGRESO":
+            lineas = rm.lineas_de_ingreso(d["items"], d["vencimientos"], corrigiendo=movimiento_id)
+        else:
+            lineas = [(pid, lid, cant) for (pid, lid), cant in d["items"].items()]
+        errores, creados, borrados = cr.aplicar_items(m, lineas)
+        # Insumos y envases: se reemplazan por lo del formulario (los de tipos que no se muestran quedan).
+        activos = [i["id"] for i in ins.lista()]
+        if activos:
+            db.execute(f"DELETE FROM movimiento_insumos WHERE movimiento_id = ? AND insumo_id IN ({','.join('?' * len(activos))})",
+                       [movimiento_id, *activos])
+        db.executemany(
+            "INSERT INTO movimiento_insumos (movimiento_id, insumo_id, propietario, cantidad) VALUES (?,?,?,?)",
+            [(movimiento_id, iid, propietario, cant) for iid, propietario, cant in d["insumos"]],
+        )
+        tipos_envase = [e["id"] for e in vacios.tipos_para_cargar()]
+        if tipos_envase:
+            db.execute(f"DELETE FROM envase_movs WHERE movimiento_id = ? AND envase_id IN ({','.join('?' * len(tipos_envase))})",
+                       [movimiento_id, *tipos_envase])
+        db.execute("UPDATE envase_movs SET fecha = ? WHERE movimiento_id = ?", (d["fecha"], movimiento_id))
+        vacios.registrar(m["empresa_id"], d["fecha"], tipo, d["envases"], movimiento_id=movimiento_id)
+        if not errores:
+            errores = estado.problemas({lid for _, lid, _ in lineas}, fecha=d["fecha"] if tipo == "INGRESO" else None)
+        if errores:
+            db.rollback()
+            return _mostrar_de_nuevo(tipo, d, errores, mostrar_repetido, m)
+        cr.limpiar_lotes(lotes_viejos)
+        cantidad_fotos = ft.guardar(movimiento_id, d["fotos"])
+        cambios = cr.diferencias(antes, cr.foto(movimiento_id)) + _texto_pallets(creados, borrados)
+        if cambios:
+            cr.anotar_remito("EDITADO", cr.foto(movimiento_id), "\n".join(cambios))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    if not cambios:
+        flash("No había nada para cambiar.", "ok")
+    else:
+        mensaje = "Remito corregido."
+        if cantidad_fotos:
+            mensaje += " Con 1 foto nueva." if cantidad_fotos == 1 else f" Con {cantidad_fotos} fotos nuevas."
+        flash(mensaje, "ok")
+        _avisar_pallets(creados, borrados)
+        _avisar_negativos(m["empresa_id"], lote_ids=lotes_viejos | {lid for _, lid, _ in lineas})
+    return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))
+
+
+@bp.route("/movimientos/<int:movimiento_id>/borrar", methods=["GET", "POST"])
+def movimiento_borrar(movimiento_id):
+    m = _movimiento_o_404(movimiento_id)
+    if m["trasvaso_id"]:
+        flash("Este remito es parte de un trasvaso: para borrarlo, borrá el trasvaso completo.", "aviso")
+        return redirect(url_for("trasvasos.trasvaso_detalle", trasvaso_id=m["trasvaso_id"]))
+    problema = cr.problema_al_borrar(m)
+    if request.method == "GET" or problema:
+        if problema and request.method == "POST":
+            flash(problema, "error")
+        items, totales = items_de_movimiento(movimiento_id)
+        return render_template("movimiento_borrar.html", m=m, tipos=TIPOS, items=items, totales=totales,
+                               problema=problema, fotos=ft.de_movimiento(movimiento_id),
+                               armados=pl.pallets(ids=[r[0] for r in get_db().execute(
+                                   "SELECT id FROM pallets WHERE movimiento_id = ?", (movimiento_id,))],
+                                   con_contenido=False))
+    db = get_db()
+    try:
+        cr.anotar_remito("BORRADO", cr.foto(movimiento_id), cr.texto_remito(cr.foto(movimiento_id)))
+        archivos = cr.borrar_movimiento(m)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    cr.archivar_fotos(archivos)
+    flash(f"{TIPOS[m['tipo']]} borrado (remito {m['remito']} del {formato_fecha(m['fecha'])}). "
+          "Queda anotado en Movimientos → Cambios y borrados.", "ok")
+    return redirect(url_for("stock.movimientos", empresa_id=m["empresa_id"]))
+
+
+@bp.route("/movimientos/cambios")
+def movimientos_cambios():
+    empresa_id = _int_o_none(request.args.get("empresa_id"))
+    accion = request.args.get("accion") if request.args.get("accion") in ("EDITADO", "BORRADO") else None
+    return render_template("cambios.html", cambios=cr.cambios(empresa_id=empresa_id, accion=accion),
+                           empresas=_empresas(), empresa_id=empresa_id, accion=accion, tipos=TIPOS)
 
 
 # -------------------------------------------------------------------- fotos
@@ -1041,7 +1417,8 @@ def foto_borrar(foto_id):
 def api_insumos():
     """Saldo de pallets (y otros insumos) del cliente en el depósito: {insumo_id: saldo}."""
     empresa_id = _int_o_none(request.args.get("empresa_id"))
-    saldos = ins.saldos_cliente(empresa_id) if empresa_id else {}
+    excluir = _int_o_none(request.args.get("excluir"))
+    saldos = ins.saldos_cliente(empresa_id, excluir_movimiento=excluir) if empresa_id else {}
     return jsonify({str(iid): saldo for (_, iid), saldo in saldos.items()})
 
 

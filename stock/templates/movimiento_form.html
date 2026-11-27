@@ -1,8 +1,14 @@
 {% extends "base.html" %}
 {% import "_remito_campos.html" as campos %}
-{% block titulo %}Nuevo {{ tipos[tipo]|lower }}{% endblock %}
+{% block titulo %}{% if editando %}Editar {{ tipos[tipo]|lower }} {{ editando.remito }}{% else %}Nuevo {{ tipos[tipo]|lower }}{% endif %}{% endblock %}
 {% block contenido %}
+{% if editando %}
+<h1>Editar {{ tipos[tipo]|lower }} · Remito {{ editando.remito }}</h1>
+<div class="tarjeta aviso-amarillo">Estás corrigiendo un remito ya guardado. Al guardar, el stock se recalcula con los datos nuevos
+  y el cambio queda anotado en el remito.{% if tipo == 'EGRESO' %} En cada lote se muestra lo que hay sin contar este remito.{% endif %}</div>
+{% else %}
 <h1>{% if tipo == 'INGRESO' %}Cargar ingreso de mercadería{% else %}Cargar egreso de mercadería{% endif %}</h1>
+{% endif %}
 {% if not empresas %}
   <div class="tarjeta">Primero tenés que <a href="{{ url_for('stock.empresa_form') }}">cargar una empresa</a>.</div>
 {% else %}
@@ -10,10 +16,12 @@
   <div class="tarjeta">
     <div class="grilla2">
       <div class="campo"><label>Empresa *</label>
-        <select name="empresa_id" id="empresa" required>
+        <select name="empresa_id" id="empresa" required {{ 'disabled' if editando }}>
           <option value="">Elegí…</option>
           {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == form.empresa_id }}>{{ e.nombre }}</option>{% endfor %}
         </select>
+        {% if editando %}<input type="hidden" name="empresa_id" value="{{ editando.empresa_id }}">
+        <div class="ayuda">La empresa no se cambia. Si el remito era de otra empresa, borralo y cargalo de nuevo.</div>{% endif %}
       </div>
       <div class="campo"><label>Fecha *</label><input type="date" name="fecha" value="{{ form.fecha or hoy() }}" required></div>
       <div class="campo"><label>N° de remito *</label><input name="remito" value="{{ form.remito or '' }}" required></div>
@@ -45,7 +53,11 @@
 
   {% if envases %}{{ campos.envases_cliente(envases, campo_envase, textos_envases, columnas_envases, tipo) }}{% endif %}
 
-  {% if tipo == 'INGRESO' %}
+  {% if editando %}
+  <p class="ayuda">{% if tipo == 'INGRESO' %}Si este remito armó pallets con etiqueta, se ajustan solos a las cantidades nuevas: los que sobran se borran
+    y, si hace falta, se arman más (después imprimí sus etiquetas).{% else %}Si cambiás una cantidad o un lote, esa mercadería vuelve a sus pallets
+    y el programa decide de nuevo de qué pallets sale.{% endif %}</p>
+  {% elif tipo == 'INGRESO' %}
   <div class="tarjeta">
     <h2 style="margin-top:0">Opciones</h2>
     <label class="check"><input type="checkbox" name="crear_pallets" value="1" {{ 'checked' if form.crear_pallets == '1' }}>
@@ -60,8 +72,13 @@
     <a href="{{ url_for('deposito.terminal_despachar') }}">Despachar con la terminal</a>.</p>
   {% endif %}
 
+  {% if editando %}
+  <button class="boton">Guardar cambios</button>
+  <a class="boton secundario" href="{{ url_for('stock.movimiento_detalle', movimiento_id=editando.id) }}">Cancelar</a>
+  {% else %}
   <button class="boton {{ 'verde' if tipo == 'INGRESO' else 'rojo' }}">Guardar {{ tipos[tipo]|lower }}</button>
   <a class="boton secundario" href="{{ url_for('stock.inicio') }}">Cancelar</a>
+  {% endif %}
 </form>
 {% endif %}
 {% endblock %}
@@ -97,10 +114,13 @@
     linkNuevo.href = '{{ url_for("stock.producto_form") }}?empresa_id=' + id + '&volver=' + encodeURIComponent(location.pathname + '?empresa_id=' + id);
     if (!id) { productos = []; saldosInsumos = {}; saldosEnvases = {}; aviso.style.display = ''; }
     else {
+      // Al corregir un remito, los saldos se muestran sin contar ese mismo remito.
+      // (el & va fuera de las llaves: dentro se escaparía como &amp; y el servidor no lo leería)
+      const excluir = '{% if editando %}&excluir={{ editando.id }}{% endif %}';
       const [r, rs, re] = await Promise.all([
-        fetch('{{ url_for("stock.api_productos") }}?empresa_id=' + id),
-        fetch('{{ url_for("stock.api_insumos") }}?empresa_id=' + id),
-        fetch('{{ url_for("trasvasos.api_envases") }}?empresa_id=' + id),
+        fetch('{{ url_for("stock.api_productos") }}?empresa_id=' + id + excluir),
+        fetch('{{ url_for("stock.api_insumos") }}?empresa_id=' + id + excluir),
+        fetch('{{ url_for("trasvasos.api_envases") }}?empresa_id=' + id + excluir),
       ]);
       productos = await r.json();
       saldosInsumos = await rs.json();

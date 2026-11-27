@@ -19,6 +19,11 @@
     {% for l in p.lotes %}
     <tbody>
       <tr class="lote-titulo"><td colspan="9">{{ ('Lote ' ~ l.lote) if l.lote else 'Sin lote' }}{% if l.vencimiento %} · vence {{ l.vencimiento|fecha }}{% if l.vencimiento < hoy_iso %} <span class="etq EGRESO">vencido</span>{% endif %}{% endif %}</td></tr>
+      {% if l.negativo %}
+      <tr class="aviso-negativo"><td colspan="9">⚠ El saldo de este lote queda negativo: hay egresos con fecha anterior a la mercadería.
+        Corregí la fecha del remito con ✎, o la del stock inicial desde el producto
+        (<a href="{{ url_for('stock.producto_form', producto_id=p.id, volver=request.full_path, _anchor='tarjeta-stock-inicial') }}">Editar el stock inicial</a>).</td></tr>
+      {% endif %}
       {% if l.saldo_anterior is not none %}
       <tr class="saldo-anterior"><td colspan="5">Saldo anterior al {{ desde|fecha }}</td>
         <td class="num">{{ l.saldo_anterior|num }}</td><td class="num">{{ l.kilos_anterior|num if l.kilos_anterior is not none }}</td><td colspan="2"></td></tr>
@@ -26,11 +31,11 @@
       {% for r in l.renglones %}
       <tr class="{{ 'anulado' if r.anulado }}">
         <td class="nowrap">{{ r.fecha|fecha }}</td>
-        <td class="nowrap"><a href="{{ url_for('stock.movimiento_detalle', movimiento_id=r.id) }}">{{ r.remito }}</a>{% if r.trasvaso_id %} <a class="etq trasvaso" href="{{ url_for('trasvasos.trasvaso_detalle', trasvaso_id=r.trasvaso_id) }}">trasvaso</a>{% endif %}{% if r.anulado %} <span class="etq anulado">anulado</span>{% endif %}</td>
+        <td class="nowrap"><a href="{{ url_for('stock.movimiento_detalle', movimiento_id=r.id) }}">{{ r.remito }}</a>{% if r.trasvaso_id %} <a class="etq trasvaso" href="{{ url_for('trasvasos.trasvaso_detalle', trasvaso_id=r.trasvaso_id) }}">trasvaso</a>{% endif %}{% if r.anulado %} <span class="etq anulado">anulado</span>{% else %}<a class="editar no-imprimir" title="Editar este remito" aria-label="Editar el remito {{ r.remito }}" href="{{ url_for('trasvasos.trasvaso_editar', trasvaso_id=r.trasvaso_id) if r.trasvaso_id else url_for('stock.movimiento_editar', movimiento_id=r.id) }}">✎</a>{% endif %}</td>
         <td class="num debe">{{ r.cantidad|num if r.tipo == 'INGRESO' else '' }}</td>
         <td class="num haber">{{ r.cantidad|num if r.tipo == 'EGRESO' else '' }}</td>
         <td class="num">{{ r.kilos|num if r.kilos is not none else '' }}</td>
-        <td class="num saldo">{{ r.saldo|num if r.saldo is not none else '' }}</td>
+        <td class="num saldo{{ ' negativo' if r.negativo }}">{{ r.saldo|num if r.saldo is not none else '' }}</td>
         <td class="num">{{ r.kilos_saldo|num if r.kilos_saldo is not none else '' }}</td>
         <td class="chico">{{ r.chofer or '' }}{% if r.patente_camion %}{{ ' · ' if r.chofer }}{{ r.patente_camion }}{% endif %}{% if r.contenedor %}{{ ' · ' if r.chofer or r.patente_camion }}Cont. {{ r.contenedor }}{% endif %}</td>
         <td class="chico">{{ r.observaciones or '' }}{% if r.fotos %}{{ ' · ' if r.observaciones }}<a href="{{ url_for('stock.movimiento_detalle', movimiento_id=r.id) }}#fotos" class="nowrap">📷 {{ r.fotos }} foto{{ 's' if r.fotos != 1 }}</a>{% endif %}</td>

@@ -89,26 +89,41 @@ def test_si_el_stock_inicial_tiene_errores_no_se_guarda_nada(app, client):
     assert [x["lote"] for x in remitos(app)] == ["L1"]
 
 
-def test_el_stock_inicial_solo_va_mientras_el_producto_no_tiene_remitos(app, client):
+def test_el_stock_inicial_se_carga_y_se_corrige_desde_el_producto(app, client):
     crear_empresa(client)
     crear_producto(client)  # A1, sin stock inicial
-    # Editando un producto sin remitos todavía se puede cargar.
+    datos = {"codigo": "A1", "descripcion": "Caja chica", "unidad": "cajas", "activo": "1"}
+    # Editando el producto se puede cargar.
     assert 'id="tarjeta-stock-inicial"' in texto(client.get("/productos/1/editar"))
     r = client.post("/productos/1/editar", data={
-        "codigo": "A1", "descripcion": "Caja chica", "unidad": "cajas", "activo": "1",
-        "si_fecha": "2026-11-27", "si_lote": ["C-1"], "si_vencimiento": [""], "si_cantidad": ["30"]})
+        **datos, "si_fecha": "2026-11-27", "si_lote": ["C-1"], "si_vencimiento": [""], "si_cantidad": ["30"]})
     assert r.status_code == 302
     assert stock(app) == 30
-    # Ya tiene un remito: el stock se cambia con ingresos y egresos, y lo que se mande se ignora.
+    # Ya cargado, se ve en el producto con sus lotes y se puede corregir: cambiar el lote y la cantidad.
     pagina = texto(client.get("/productos/1/editar"))
-    assert 'id="tarjeta-stock-inicial"' not in pagina and "Este producto ya tiene remitos" in pagina
+    assert 'id="tarjeta-stock-inicial"' in pagina and 'value="C-1"' in pagina and 'value="30"' in pagina
+    assert "Este producto ya tiene remitos" not in pagina
+    r = client.post("/productos/1/editar", data={
+        **datos, "si_fecha": "2026-11-27", "si_lote": ["C-2"], "si_vencimiento": [""], "si_cantidad": ["99"]})
+    assert "Producto guardado. Stock inicial corregido: 99 cajas en 1 lote." in texto(client.get(r.headers["Location"]))
+    assert stock(app) == 99
+    assert [(x["remito"], x["lote"], x["cantidad"]) for x in remitos(app)] == [("STOCK INICIAL", "C-2", 99)]
+    with app.app_context():
+        # El lote mal escrito no queda dando vueltas, y la corrección queda anotada en el remito.
+        assert get_db().execute("SELECT COUNT(*) FROM lotes WHERE lote = 'C-1'").fetchone()[0] == 0
+        detalle = get_db().execute("SELECT detalle FROM cambios").fetchone()[0]
+    assert "Stock inicial de A1, corregido desde el producto:" in detalle
+    assert "Se quitó A1 - Caja chica (lote C-1): 30 cajas" in detalle
+    assert "Se agregó A1 - Caja chica (lote C-2): 99 cajas" in detalle
+    # Guardar sin tocar nada no cambia nada ni anota nada.
     client.post("/productos/1/editar", data={
-        "codigo": "A1", "descripcion": "Caja chica", "unidad": "cajas", "activo": "1",
-        "si_fecha": "2026-11-27", "si_lote": ["C-2"], "si_vencimiento": [""], "si_cantidad": ["99"]})
-    assert stock(app) == 30
-    # Si se anula el stock inicial (por ejemplo, estaba mal), se puede volver a cargar desde el producto.
+        **datos, "si_fecha": "2026-11-27", "si_lote": ["C-2"], "si_vencimiento": [""], "si_cantidad": ["99"]})
+    with app.app_context():
+        assert get_db().execute("SELECT COUNT(*) FROM cambios").fetchone()[0] == 1
+    # Si se anula el stock inicial (por ejemplo, estaba mal), se puede cargar uno nuevo desde el producto.
     client.post("/movimientos/1/anular", data={"motivo": "cantidad mal"})
-    assert 'id="tarjeta-stock-inicial"' in texto(client.get("/productos/1/editar"))
+    pagina = texto(client.get("/productos/1/editar"))
+    assert 'id="tarjeta-stock-inicial"' in pagina and 'value="C-2"' not in pagina
 
 
 def test_desde_un_remito_el_producto_se_crea_sin_stock_inicial(app, client):

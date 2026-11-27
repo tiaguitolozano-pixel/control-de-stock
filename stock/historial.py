@@ -1,8 +1,14 @@
-"""Historial de movimientos como un libro: por producto y por lote, de arriba (lo más viejo) hacia abajo."""
+"""Historial de movimientos como un libro: por producto y por lote, de arriba (lo más viejo) hacia abajo.
+
+Dentro de un mismo día van primero los ingresos y después los egresos: lo que entra un día se puede sacar
+ese mismo día, así que el saldo no se ve negativo por el orden en que se cargaron los remitos.
+"""
 from collections import defaultdict
 
 from .db import get_db
 from .fotos import cantidad_por_movimiento
+
+EPS = 1e-6
 
 
 def _con_signo(r):
@@ -29,7 +35,7 @@ def saldos_de_lotes(lote_ids, desde="", hasta=""):
         f"""SELECT i.id, i.lote_id, i.cantidad, m.tipo, m.fecha
             FROM movimiento_items i JOIN movimientos m ON m.id = i.movimiento_id
             WHERE m.anulado = 0 AND i.lote_id IN ({_marcas(ids)})
-            ORDER BY m.fecha, m.id, i.id""",
+            ORDER BY m.fecha, m.tipo = 'EGRESO', m.id, i.id""",
         ids,
     ).fetchall()
     acumulado = defaultdict(float)
@@ -76,7 +82,7 @@ def libro_por_lote(renglones, desde="", hasta=""):
     no anulados aunque los filtros oculten algunos. Si hay fecha 'desde', cada lote empieza con el saldo
     que tenía antes de esa fecha.
     """
-    renglones = sorted(renglones, key=lambda r: (r["fecha"], r["id"], r["item_id"]))
+    renglones = sorted(renglones, key=lambda r: (r["fecha"], r["tipo"] == "EGRESO", r["id"], r["item_id"]))
     despues, anterior, final = saldos_de_lotes({r["lote_id"] for r in renglones}, desde, hasta)
     generales = saldos_de_productos({r["producto_id"] for r in renglones}, hasta)
     fotos = cantidad_por_movimiento({r["id"] for r in renglones})
@@ -90,7 +96,7 @@ def libro_por_lote(renglones, desde="", hasta=""):
                 "id": r["producto_id"], "empresa": r["empresa"], "codigo": r["codigo"],
                 "descripcion": r["descripcion"], "unidad": r["unidad"], "kilos_por_unidad": kg,
                 "unidades_por_pallet": r["unidades_por_pallet"], "saldo": saldo, "kilos": _kilos(saldo, kg),
-                "lotes": {},
+                "lotes": {}, "negativo": False,
             }
         lote = prod["lotes"].get(r["lote_id"])
         if lote is None:
@@ -100,13 +106,17 @@ def libro_por_lote(renglones, desde="", hasta=""):
                 "id": r["lote_id"], "lote": r["lote"], "vencimiento": r["vencimiento"],
                 "saldo_anterior": saldo_anterior, "kilos_anterior": _kilos(saldo_anterior, kg),
                 "saldo_final": saldo_final, "kilos_final": _kilos(saldo_final, kg),
-                "ingresos": 0.0, "egresos": 0.0, "renglones": [],
+                "ingresos": 0.0, "egresos": 0.0, "renglones": [], "negativo": False,
             }
         fila = dict(r)
         fila["kilos"] = _kilos(r["cantidad"], kg)
         fila["saldo"] = None if r["anulado"] else despues.get(r["item_id"])
         fila["kilos_saldo"] = _kilos(fila["saldo"], kg)
         fila["fotos"] = fotos.get(r["id"], 0)
+        fila["negativo"] = fila["saldo"] is not None and fila["saldo"] < -EPS
+        if fila["negativo"]:
+            # Salió mercadería que, con esas fechas, todavía no había entrado: hay que revisar las fechas.
+            lote["negativo"] = prod["negativo"] = True
         if not r["anulado"]:
             lote["ingresos" if r["tipo"] == "INGRESO" else "egresos"] += r["cantidad"]
         lote["renglones"].append(fila)
@@ -114,3 +124,39 @@ def libro_por_lote(renglones, desde="", hasta=""):
     for p in resultado:
         p["lotes"] = list(p["lotes"].values())
     return resultado
+
+
+def lotes_con_saldo_negativo(empresa_id=None):
+    """Lotes cuyo saldo quedó negativo algún día: hay egresos con fecha anterior a la mercadería.
+
+    Pasa, por ejemplo, si el stock inicial se cargó con la fecha de hoy y los egresos con fechas anteriores.
+    Devuelve [{lote_id, lote, codigo, descripcion, unidad, empresa_id, empresa, desde, minimo}],
+    con el primer día en que quedó negativo y el saldo más bajo.
+    """
+    sql = """SELECT i.lote_id, m.fecha,
+                    SUM(CASE WHEN m.tipo = 'INGRESO' THEN i.cantidad ELSE -i.cantidad END) AS neto
+             FROM movimiento_items i JOIN movimientos m ON m.id = i.movimiento_id
+             WHERE m.anulado = 0"""
+    params = []
+    if empresa_id:
+        sql += " AND m.empresa_id = ?"
+        params.append(empresa_id)
+    negativos, actual, acumulado = {}, None, 0.0
+    for r in get_db().execute(sql + " GROUP BY i.lote_id, m.fecha ORDER BY i.lote_id, m.fecha", params):
+        if r["lote_id"] != actual:
+            actual, acumulado = r["lote_id"], 0.0
+        acumulado = round(acumulado + r["neto"], 6)
+        if acumulado < -EPS:
+            n = negativos.setdefault(actual, {"desde": r["fecha"], "minimo": acumulado})
+            n["minimo"] = min(n["minimo"], acumulado)
+    if not negativos:
+        return []
+    filas = get_db().execute(
+        f"""SELECT l.id AS lote_id, l.lote, p.id AS producto_id, p.codigo, p.descripcion, p.unidad,
+                   e.id AS empresa_id, e.nombre AS empresa
+            FROM lotes l JOIN productos p ON p.id = l.producto_id JOIN empresas e ON e.id = p.empresa_id
+            WHERE l.id IN ({_marcas(negativos)})""",
+        list(negativos),
+    ).fetchall()
+    res = [{**dict(f), **negativos[f["lote_id"]]} for f in filas]
+    return sorted(res, key=lambda r: (r["empresa"].lower(), r["codigo"].lower(), r["lote"].lower()))

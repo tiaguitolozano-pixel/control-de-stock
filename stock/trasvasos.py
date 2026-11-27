@@ -13,13 +13,14 @@ from datetime import date
 
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
 
+from . import correcciones as cr
 from . import fotos as ft
 from . import insumos as ins
 from . import pallets as pl
 from . import remitos as rm
 from . import vacios
 from .db import get_db
-from .formato import formato_numero
+from .formato import formato_fecha, formato_numero
 from .rutas import (
     _empresas,
     _excel,
@@ -29,7 +30,7 @@ from .rutas import (
     _transportes_previos,
     items_de_movimiento,
 )
-from .servicios import CAMPOS_TRANSPORTE, normalizar_transporte, parse_numero, registrar_movimiento
+from .servicios import CAMPOS_TRANSPORTE, buscar_lote, normalizar_transporte, parse_numero, registrar_movimiento
 
 bp = Blueprint("trasvasos", __name__)
 
@@ -180,18 +181,101 @@ def trasvasos_excel():
 # ---------------------------------------------------------------- cargar uno
 
 
-def _form(form, destino, origen, mostrar_repetido=False, textos_insumos=None, textos_envases=None):
+def _form(form, destino, origen, mostrar_repetido=False, textos_insumos=None, textos_envases=None, editando=None):
+    """El formulario de un trasvaso nuevo o, con editando (el trasvaso guardado), el de una corrección."""
+    remitos = _remitos(editando["id"]) if editando else {}
     return render_template(
-        "trasvaso_form.html", empresas=_empresas(solo_activas=True), form=form, renglones=destino,
+        "trasvaso_form.html", editando_ingreso=remitos["INGRESO"]["id"] if remitos.get("INGRESO") else None,
+        editando_egreso=remitos["EGRESO"]["id"] if remitos.get("EGRESO") else None,
+        empresas=_empresas(solo_activas=not editando), form=form, renglones=destino,
         renglones_origen=origen, mostrar_repetido=mostrar_repetido, previos=_transportes_previos(),
         insumos=ins.lista(), campos_insumo=ins.campos, textos_insumos=textos_insumos or {},
         envases=vacios.tipos_para_cargar(), campo_envase=vacios.campo,
-        columnas_envases=vacios.COLUMNAS["TRASVASO"], textos_envases=textos_envases or {},
+        columnas_envases=vacios.COLUMNAS["TRASVASO"], textos_envases=textos_envases or {}, editando=editando,
     )
 
 
 def _con_prefijo(texto, errores):
     return [f"{texto}: {e}" for e in errores]
+
+
+def _leer_trasvaso(t=None):
+    """Lee y revisa el formulario de un trasvaso nuevo, o de uno guardado que se está corrigiendo (t).
+
+    Devuelve (d, errores, mostrar_repetido).
+    """
+    db = get_db()
+    remitos = _remitos(t["id"]) if t else {}
+    ingreso, egreso = remitos.get("INGRESO"), remitos.get("EGRESO")
+    empresa_id = t["empresa_id"] if t else _int_o_none(request.form.get("empresa_id"))
+    origen = "DEPOSITO" if request.form.get("origen") == "DEPOSITO" else "AFUERA"
+    kilos_texto = _texto("kilos_origen") if origen == "AFUERA" else ""
+    d = {
+        "empresa_id": empresa_id, "fecha": _texto("fecha"), "orden": _texto("orden"), "remito": _texto("remito"),
+        "observaciones": _texto("observaciones"), "origen": origen, "kilos_texto": kilos_texto,
+        "kilos_origen": parse_numero(kilos_texto) if kilos_texto else None,
+        "transporte": normalizar_transporte({c: _texto(c) for c in CAMPOS_TRANSPORTE}),
+        "destino": rm.leer_renglones(request.form),
+        "sale": rm.leer_renglones(request.form, "o_") if origen == "DEPOSITO" else [],
+    }
+    d["insumos"], errores_insumos, d["textos_insumos"] = ins.leer_formulario(request.form)
+    d["envases"], errores_envases, d["textos_envases"] = vacios.leer_formulario(request.form, "TRASVASO")
+    d["fotos"], errores_fotos = ft.leer_subidas(request.files.getlist("fotos"))
+
+    errores = []
+    if not empresa_id:
+        errores.append("Elegí la empresa.")
+    if not _fecha_valida(d["fecha"]):
+        errores.append("La fecha no es válida.")
+    if not d["orden"]:
+        errores.append("El número de orden es obligatorio.")
+    if kilos_texto and (d["kilos_origen"] is None or d["kilos_origen"] < 0):
+        errores.append("Los kilos que llegan no son un número válido.")
+    if origen == "DEPOSITO" and not d["sale"]:
+        errores.append("Origen: elegí qué producto del depósito se vacía y de qué lote sale.")
+    if not d["destino"]:
+        errores.append("Destino: cargá cómo queda envasado el producto (al menos un renglón).")
+    errores += errores_insumos + errores_envases + errores_fotos
+
+    d["productos"] = productos = rm.productos_de_empresa(empresa_id)
+    d["items_salen"], _, errores_salen = rm.revisar_renglones("EGRESO", d["sale"], productos)
+    d["items_entran"], d["vencimientos"], errores_entran = rm.revisar_renglones(
+        "INGRESO", d["destino"], productos, corrigiendo=ingreso["id"] if ingreso else None)
+    errores += _con_prefijo("Origen", errores_salen) + _con_prefijo("Destino", errores_entran)
+    if not errores:
+        excluir = [egreso["id"]] if egreso else []
+        errores += _con_prefijo("Origen", rm.chequear_stock(d["items_salen"], productos, d["fecha"], excluir))
+        if t:
+            errores += vacios.problemas_al_cambiar(empresa_id, "TRASVASO", d["envases"], trasvaso_id=t["id"])
+            if ingreso:
+                errores += ins.problemas_al_cambiar(empresa_id, "INGRESO", d["insumos"], ingreso["id"])
+        else:
+            errores += vacios.chequear(empresa_id, "TRASVASO", d["envases"])
+
+    mostrar_repetido = False
+    cambia_orden = not t or d["orden"].lower() != t["orden"].lower()
+    if empresa_id and d["orden"] and cambia_orden and not errores:
+        repetido = db.execute(
+            "SELECT id FROM trasvasos WHERE empresa_id = ? AND orden = ? AND anulado = 0 AND id <> ?",
+            (empresa_id, d["orden"], t["id"] if t else 0),
+        ).fetchone()
+        if repetido and request.form.get("confirmar_repetido") != "1":
+            mostrar_repetido = True
+            errores.append("Ya hay un trasvaso con ese número de orden para esta empresa. "
+                           "Si es correcto, marcá la casilla 'Cargar igual' y guardá de nuevo.")
+    return d, errores, mostrar_repetido
+
+
+def _mostrar_de_nuevo(d, errores, mostrar_repetido, t=None):
+    for e in dict.fromkeys(errores):  # sin repetidos
+        flash(e, "error")
+    if d["fotos"]:
+        flash("Las fotos no se guardaron: volvé a elegirlas antes de guardar.", "aviso")
+    form = {"empresa_id": d["empresa_id"], "fecha": d["fecha"], "orden": d["orden"], "remito": d["remito"],
+            "observaciones": d["observaciones"], "origen": d["origen"], "kilos_origen": _texto("kilos_origen"),
+            "crear_pallets": request.form.get("crear_pallets", ""), **d["transporte"]}
+    return _form(form, d["destino"], rm.leer_renglones(request.form, "o_"), mostrar_repetido,
+                 d["textos_insumos"], d["textos_envases"], editando=t)
 
 
 @bp.route("/trasvasos/nuevo", methods=["GET", "POST"])
@@ -201,88 +285,35 @@ def trasvaso_nuevo():
                       "origen": "AFUERA", "crear_pallets": "1"}, [], [])
 
     db = get_db()
-    empresa_id = _int_o_none(request.form.get("empresa_id"))
-    fecha = _texto("fecha")
-    orden = _texto("orden")
-    remito = _texto("remito")
-    observaciones = _texto("observaciones")
-    origen = "DEPOSITO" if request.form.get("origen") == "DEPOSITO" else "AFUERA"
-    kilos_texto = _texto("kilos_origen") if origen == "AFUERA" else ""
-    kilos_origen = parse_numero(kilos_texto) if kilos_texto else None
-    transporte = normalizar_transporte({c: _texto(c) for c in CAMPOS_TRANSPORTE})
-    destino = rm.leer_renglones(request.form)
-    sale = rm.leer_renglones(request.form, "o_") if origen == "DEPOSITO" else []
-    insumos, errores_insumos, textos_insumos = ins.leer_formulario(request.form)
-    envases, errores_envases, textos_envases = vacios.leer_formulario(request.form, "TRASVASO")
-    fotos, errores_fotos = ft.leer_subidas(request.files.getlist("fotos"))
-
-    errores = []
-    if not empresa_id:
-        errores.append("Elegí la empresa.")
-    if not _fecha_valida(fecha):
-        errores.append("La fecha no es válida.")
-    if not orden:
-        errores.append("El número de orden es obligatorio.")
-    if kilos_texto and (kilos_origen is None or kilos_origen < 0):
-        errores.append("Los kilos que llegan no son un número válido.")
-    if origen == "DEPOSITO" and not sale:
-        errores.append("Origen: elegí qué producto del depósito se vacía y de qué lote sale.")
-    if not destino:
-        errores.append("Destino: cargá cómo queda envasado el producto (al menos un renglón).")
-    errores += errores_insumos + errores_envases + errores_fotos
-
-    productos = rm.productos_de_empresa(empresa_id)
-    items_salen, _, errores_salen = rm.revisar_renglones("EGRESO", sale, productos)
-    items_entran, vencimientos, errores_entran = rm.revisar_renglones("INGRESO", destino, productos)
-    errores += _con_prefijo("Origen", errores_salen) + _con_prefijo("Destino", errores_entran)
-    if not errores:
-        errores += _con_prefijo("Origen", rm.chequear_stock(items_salen, productos))
-        errores += vacios.chequear(empresa_id, "TRASVASO", envases)
-
-    mostrar_repetido = False
-    if empresa_id and orden and not errores:
-        repetido = db.execute(
-            "SELECT id FROM trasvasos WHERE empresa_id = ? AND orden = ? AND anulado = 0", (empresa_id, orden)
-        ).fetchone()
-        if repetido and request.form.get("confirmar_repetido") != "1":
-            mostrar_repetido = True
-            errores.append("Ya hay un trasvaso con ese número de orden para esta empresa. "
-                           "Si es correcto, marcá la casilla 'Cargar igual' y guardá de nuevo.")
-
+    d, errores, mostrar_repetido = _leer_trasvaso()
     if errores:
-        for e in dict.fromkeys(errores):  # sin repetidos
-            flash(e, "error")
-        if fotos:
-            flash("Las fotos no se guardaron: volvé a elegirlas antes de guardar.", "aviso")
-        form = {"empresa_id": empresa_id, "fecha": fecha, "orden": orden, "remito": remito,
-                "observaciones": observaciones, "origen": origen, "kilos_origen": _texto("kilos_origen"),
-                "crear_pallets": request.form.get("crear_pallets", ""), **transporte}
-        return _form(form, destino, rm.leer_renglones(request.form, "o_"), mostrar_repetido,
-                     textos_insumos, textos_envases)
+        return _mostrar_de_nuevo(d, errores, mostrar_repetido)
 
+    empresa_id, fecha, orden, observaciones = d["empresa_id"], d["fecha"], d["orden"], d["observaciones"]
     cur = db.execute(
         """INSERT INTO trasvasos (empresa_id, fecha, orden, remito, origen, kilos_origen, observaciones)
            VALUES (?,?,?,?,?,?,?)""",
-        (empresa_id, fecha, orden, remito or None, origen, kilos_origen, observaciones or None),
+        (empresa_id, fecha, orden, d["remito"] or None, d["origen"], d["kilos_origen"], observaciones or None),
     )
     trasvaso_id = cur.lastrowid
     numero = remito_de_orden(orden)
     remitos = []
-    if origen == "DEPOSITO":
-        lineas, plan = rm.lineas_de_egreso(items_salen, productos)
+    if d["origen"] == "DEPOSITO":
+        lineas, plan = rm.lineas_de_egreso(d["items_salen"], d["productos"])
         egreso_id = registrar_movimiento("EGRESO", empresa_id, fecha, numero, observaciones, lineas)
         pl.registrar_salida_de_pallets(egreso_id, plan)
         remitos.append(egreso_id)
-    lineas = rm.lineas_de_ingreso(items_entran, vencimientos)
-    ingreso_id = registrar_movimiento("INGRESO", empresa_id, fecha, numero, observaciones, lineas, transporte, insumos)
+    lineas = rm.lineas_de_ingreso(d["items_entran"], d["vencimientos"])
+    ingreso_id = registrar_movimiento("INGRESO", empresa_id, fecha, numero, observaciones, lineas, d["transporte"],
+                                      d["insumos"])
     remitos.append(ingreso_id)
     db.execute(f"UPDATE movimientos SET trasvaso_id = ? WHERE id IN ({','.join('?' * len(remitos))})",
                [trasvaso_id, *remitos])
-    vacios.registrar(empresa_id, fecha, "TRASVASO", envases, trasvaso_id=trasvaso_id)
+    vacios.registrar(empresa_id, fecha, "TRASVASO", d["envases"], trasvaso_id=trasvaso_id)
     creados, avisos = [], []
     if request.form.get("crear_pallets") == "1":
         creados, avisos = pl.crear_pallets_de_ingreso(ingreso_id)
-    cantidad_fotos = ft.guardar(ingreso_id, fotos)
+    cantidad_fotos = ft.guardar(ingreso_id, d["fotos"])
     db.commit()
     mensaje = f"Trasvaso guardado (orden {orden})."
     if cantidad_fotos:
@@ -319,6 +350,7 @@ def trasvaso_detalle(trasvaso_id):
             "SELECT id FROM pallets WHERE movimiento_id = ?", (ingreso["id"],))], con_contenido=False)
     return render_template(
         "trasvaso_detalle.html", t=t, ingreso=ingreso, egreso=egreso, entra=entra, totales_entra=totales_entra,
+        cambios=cr.cambios(trasvaso_id=trasvaso_id),
         sale=sale, totales_sale=totales_sale, kilos_origen=kilos_origen, kilos_destino=kilos_destino,
         diferencia=diferencia, envases=vacios.de_trasvaso(trasvaso_id), origenes=ORIGENES,
         insumos=ins.de_movimiento(ingreso["id"]) if ingreso else [], nombre_insumo=ins.nombre_renglon,
@@ -340,14 +372,9 @@ def trasvaso_anular(trasvaso_id):
         return volver
     db = get_db()
     remitos = {tipo: m for tipo, m in _remitos(trasvaso_id).items() if not m["anulado"]}
-    # Lo que salió del depósito vuelve al stock a la vez que se saca lo que entró envasado.
-    vuelve = defaultdict(float)
-    if "EGRESO" in remitos:
-        for r in db.execute("SELECT lote_id, cantidad FROM movimiento_items WHERE movimiento_id = ?",
-                            (remitos["EGRESO"]["id"],)):
-            vuelve[r["lote_id"]] += r["cantidad"]
     if "INGRESO" in remitos:
-        problema = rm.problema_al_anular_ingreso(remitos["INGRESO"], vuelve)
+        # Lo que salió del depósito vuelve al stock a la vez que se saca lo que entró envasado.
+        problema = rm.problema_al_anular_ingreso(remitos["INGRESO"], [m["id"] for m in remitos.values()])
         if problema:
             flash(problema, "error")
             return volver
@@ -363,6 +390,265 @@ def trasvaso_anular(trasvaso_id):
     db.commit()
     flash("Trasvaso anulado. Se recalcularon el stock de la mercadería y el de los envases.", "ok")
     return volver
+
+
+# --------------------------------------------------------- corregir o borrar
+
+
+def _foto_trasvaso(t):
+    """Todo lo de un trasvaso: sus datos, sus dos remitos y sus envases (para comparar o anotar)."""
+    t = dict(get_db().execute(
+        "SELECT t.*, e.nombre AS empresa FROM trasvasos t JOIN empresas e ON e.id = t.empresa_id WHERE t.id = ?",
+        (t["id"],)).fetchone())
+    remitos = _remitos(t["id"])
+    return {"t": t, **{tipo: cr.foto(m["id"]) for tipo, m in remitos.items()},
+            "envases": vacios.de_trasvaso(t["id"])}
+
+
+def _texto_envases_trasvaso(envases):
+    partes = []
+    for e in envases:
+        if e["vacios"]:
+            partes.append(f"{formato_numero(e['vacios'])} {e['nombre'].lower()} {vacios.palabras(e['nombre'], 'VACIO')[1]} usados")
+        if e["sucios"]:
+            partes.append(f"{formato_numero(e['sucios'])} {e['nombre'].lower()} {vacios.palabras(e['nombre'], 'SUCIO')[1]} que quedan")
+    return ", ".join(partes)
+
+
+def _texto_trasvaso(f):
+    t = f["t"]
+    lineas = [f"Trasvaso del {formato_fecha(t['fecha'])}, orden {t['orden']}, de {t['empresa']}. "
+              f"Origen: {ORIGENES[t['origen']].lower()}."]
+    for tipo, titulo in (("EGRESO", "Salió del depósito"), ("INGRESO", "Quedó envasado")):
+        for i in f.get(tipo, {}).get("items", []):
+            lineas.append(f"{titulo}: {i['codigo']} - {i['descripcion']} "
+                          f"({('lote ' + i['lote']) if i['lote'] else 'sin lote'}): {formato_numero(i['cantidad'])} "
+                          f"{i['unidad'].lower()}.")
+    if t["kilos_origen"]:
+        lineas.append(f"Kilos que llegaron: {formato_numero(t['kilos_origen'])}.")
+    envases = _texto_envases_trasvaso(f["envases"])
+    if envases:
+        lineas.append(f"Envases: {envases}.")
+    for i in f.get("INGRESO", {}).get("insumos", []):
+        lineas.append(f"{i['nombre']}: {formato_numero(i['cantidad'])} {i['unidad']}.")
+    if t["observaciones"]:
+        lineas.append(f"Observación: {t['observaciones']}")
+    if t["anulado"]:
+        lineas.append(f"Estaba anulado ({t['motivo_anulacion'] or 'sin motivo'}).")
+    return "\n".join(lineas)
+
+
+def _diferencias_trasvaso(a, b):
+    lineas = []
+    for campo, nombre in (("fecha", "Fecha"), ("orden", "N° de orden"), ("remito", "N° de remito"),
+                          ("origen", "Origen"), ("kilos_origen", "Kilos que llegaron"),
+                          ("observaciones", "Observación")):
+        va, vb = a["t"].get(campo), b["t"].get(campo)
+        if (va or "") != (vb or ""):
+            if campo == "fecha":
+                va, vb = formato_fecha(va), formato_fecha(vb)
+            elif campo == "origen":
+                va, vb = ORIGENES.get(va, va), ORIGENES.get(vb, vb)
+            elif campo == "kilos_origen":
+                va, vb = formato_numero(va), formato_numero(vb)
+            lineas.append(f"{nombre}: {va or '(vacío)'} → {vb or '(vacío)'}")
+    for tipo, titulo in (("EGRESO", "Lo que sale"), ("INGRESO", "Lo envasado")):
+        vacio = {"m": {}, "items": [], "insumos": [], "envases": [], "fotos": 0}
+        x, y = a.get(tipo) or vacio, b.get(tipo) or vacio
+        # Los datos del remito (fecha, número, observación) ya están en los del trasvaso.
+        quitar = ("Fecha:", "N° de remito:", "Observación:")
+        lineas += [f"{titulo}: {l}" if not l.startswith(("Chofer", "Empresa de transporte", "Patente", "Contenedor",
+                                                          "Tipo de contenedor", "Se agregó 1 foto", "Se agregaron"))
+                   else l
+                   for l in cr.diferencias({**x, "m": x["m"] or y["m"]}, {**y, "m": y["m"] or x["m"]})
+                   if not l.startswith(quitar)]
+    va, vb = _texto_envases_trasvaso(a["envases"]), _texto_envases_trasvaso(b["envases"])
+    if va != vb:
+        lineas.append(f"Envases: {va or '(ninguno)'} → {vb or '(ninguno)'}")
+    return lineas
+
+
+def _datos_para_editar(t):
+    db = get_db()
+    remitos = _remitos(t["id"])
+    ingreso, egreso = remitos.get("INGRESO"), remitos.get("EGRESO")
+    form = {"empresa_id": t["empresa_id"], "fecha": t["fecha"], "orden": t["orden"], "remito": t["remito"] or "",
+            "observaciones": t["observaciones"] or "", "origen": t["origen"],
+            "kilos_origen": formato_numero(t["kilos_origen"], 6) if t["kilos_origen"] is not None else "",
+            **{c: (ingreso[c] if ingreso else "") or "" for c in CAMPOS_TRANSPORTE}}
+
+    def renglones(m):
+        if not m:
+            return []
+        return [{"producto_id": r["producto_id"], "lote_id": r["lote_id"], "lote": r["lote"],
+                 "vencimiento": r["vencimiento"] or "", "cantidad": formato_numero(r["cantidad"], 6)}
+                for r in db.execute(
+                    """SELECT i.producto_id, i.lote_id, i.cantidad, l.lote, l.vencimiento FROM movimiento_items i
+                       JOIN lotes l ON l.id = i.lote_id WHERE i.movimiento_id = ? ORDER BY i.id""", (m["id"],))]
+
+    textos_insumos = defaultdict(float)
+    for r in (ins.de_movimiento(ingreso["id"]) if ingreso else []):
+        textos_insumos[f"ins_{r['insumo_id']}_{r['propietario']}" if r["propietario"] else f"ins_{r['insumo_id']}"] \
+            += r["cantidad"]
+    textos_envases = {
+        vacios.campo(r["envase_id"], r["estado"]): formato_numero(abs(r["cantidad"]), 6)
+        for r in db.execute(
+            """SELECT envase_id, estado, SUM(cantidad) AS cantidad FROM envase_movs
+               WHERE trasvaso_id = ? AND anulado = 0 GROUP BY envase_id, estado""", (t["id"],))
+        if abs(r["cantidad"]) > 1e-9
+    }
+    return (form, renglones(ingreso), renglones(egreso), {k: formato_numero(v, 6) for k, v in textos_insumos.items()},
+            textos_envases)
+
+
+@bp.route("/trasvasos/<int:trasvaso_id>/editar", methods=["GET", "POST"])
+def trasvaso_editar(trasvaso_id):
+    t = _trasvaso_o_404(trasvaso_id)
+    volver = redirect(url_for("trasvasos.trasvaso_detalle", trasvaso_id=trasvaso_id))
+    remitos = _remitos(trasvaso_id)
+    ingreso, egreso = remitos.get("INGRESO"), remitos.get("EGRESO")
+    if t["anulado"]:
+        flash("Este trasvaso está anulado: no se puede editar. Si se cargó por error, podés borrarlo.", "error")
+        return volver
+    if ingreso is None:
+        flash("Este trasvaso no tiene el remito de lo envasado: no se puede editar. Borralo y cargalo de nuevo.", "error")
+        return volver
+    if request.method == "GET":
+        form, destino, origen, textos_insumos, textos_envases = _datos_para_editar(t)
+        return _form(form, destino, origen, False, textos_insumos, textos_envases, editando=t)
+
+    d, errores, mostrar_repetido = _leer_trasvaso(t)
+    if errores:
+        return _mostrar_de_nuevo(d, errores, mostrar_repetido, t)
+    db = get_db()
+    empresa_id, fecha, observaciones = t["empresa_id"], d["fecha"], d["observaciones"]
+    antes = _foto_trasvaso(t)
+    lotes_viejos = cr.lotes_de([m["id"] for m in remitos.values()])
+    existentes = {l["id"] for l in (buscar_lote(pid, lote) for (pid, _), (lote, _) in d["vencimientos"].items()) if l}
+    estado = cr.Estado(lotes_viejos | existentes | {lid for _, lid in d["items_salen"]})
+    numero = remito_de_orden(d["orden"])
+    creados, borrados = [], []
+    try:
+        db.execute(
+            """UPDATE trasvasos SET fecha = ?, orden = ?, remito = ?, origen = ?, kilos_origen = ?, observaciones = ?
+               WHERE id = ?""",
+            (fecha, d["orden"], d["remito"] or None, d["origen"], d["kilos_origen"], observaciones or None, trasvaso_id),
+        )
+        # Lo que sale del depósito (el egreso del trasvaso).
+        if d["origen"] == "DEPOSITO":
+            lineas_salen = [(pid, lid, cant) for (pid, lid), cant in d["items_salen"].items()]
+            if egreso:
+                db.execute("UPDATE movimientos SET fecha = ?, remito = ?, observaciones = ? WHERE id = ?",
+                           (fecha, numero, observaciones, egreso["id"]))
+                errores += cr.aplicar_items(egreso, lineas_salen)[0]
+            else:
+                lineas, plan = rm.lineas_de_egreso(d["items_salen"], d["productos"])
+                egreso_id = registrar_movimiento("EGRESO", empresa_id, fecha, numero, observaciones, lineas)
+                pl.registrar_salida_de_pallets(egreso_id, plan)
+                db.execute("UPDATE movimientos SET trasvaso_id = ? WHERE id = ?", (trasvaso_id, egreso_id))
+        elif egreso:
+            cr.borrar_movimiento(egreso)  # ahora llega de afuera: lo que salía del depósito vuelve
+        # Lo que queda envasado (el ingreso del trasvaso).
+        tr = {c: d["transporte"].get(c) or None for c in CAMPOS_TRANSPORTE}
+        db.execute(
+            f"""UPDATE movimientos SET fecha = ?, remito = ?, observaciones = ?,
+                       {", ".join(c + " = ?" for c in CAMPOS_TRANSPORTE)} WHERE id = ?""",
+            (fecha, numero, observaciones, *(tr[c] for c in CAMPOS_TRANSPORTE), ingreso["id"]),
+        )
+        lineas_entran = rm.lineas_de_ingreso(d["items_entran"], d["vencimientos"], corrigiendo=ingreso["id"])
+        errores_entran, creados, borrados = cr.aplicar_items(ingreso, lineas_entran)
+        errores += errores_entran
+        activos = [i["id"] for i in ins.lista()]
+        if activos:
+            db.execute(f"DELETE FROM movimiento_insumos WHERE movimiento_id = ? AND insumo_id IN ({','.join('?' * len(activos))})",
+                       [ingreso["id"], *activos])
+        db.executemany(
+            "INSERT INTO movimiento_insumos (movimiento_id, insumo_id, propietario, cantidad) VALUES (?,?,?,?)",
+            [(ingreso["id"], iid, propietario, cant) for iid, propietario, cant in d["insumos"]],
+        )
+        tipos_envase = [e["id"] for e in vacios.tipos_para_cargar()]
+        if tipos_envase:
+            db.execute(f"DELETE FROM envase_movs WHERE trasvaso_id = ? AND envase_id IN ({','.join('?' * len(tipos_envase))})",
+                       [trasvaso_id, *tipos_envase])
+        db.execute("UPDATE envase_movs SET fecha = ? WHERE trasvaso_id = ?", (fecha, trasvaso_id))
+        vacios.registrar(empresa_id, fecha, "TRASVASO", d["envases"], trasvaso_id=trasvaso_id)
+        if not errores:
+            errores = estado.problemas({lid for _, lid, _ in lineas_entran}, fecha=fecha)
+        if errores:
+            db.rollback()
+            return _mostrar_de_nuevo(d, errores, mostrar_repetido, t)
+        cr.limpiar_lotes(lotes_viejos)
+        cantidad_fotos = ft.guardar(ingreso["id"], d["fotos"])
+        despues = _foto_trasvaso(t)
+        cambios = _diferencias_trasvaso(antes, despues)
+        if cantidad_fotos:
+            cambios.append("Se agregó 1 foto" if cantidad_fotos == 1 else f"Se agregaron {cantidad_fotos} fotos")
+        if creados:
+            cambios.append(("Se armó el pallet " if len(creados) == 1 else "Se armaron los pallets ")
+                           + ", ".join(pl.codigo_pallet(p) for p in creados))
+        if borrados:
+            cambios.append(("Se borró el pallet " if len(borrados) == 1 else "Se borraron los pallets ")
+                           + ", ".join(pl.codigo_pallet(p) for p in borrados) + " (ya no hacía falta)")
+        if cambios:
+            cr.anotar("EDITADO", "\n".join(cambios), trasvaso_id=trasvaso_id, empresa_id=empresa_id,
+                      tipo="TRASVASO", fecha=fecha, remito=numero)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    flash("Trasvaso corregido. Se recalcularon el stock y los envases." if cambios else "No había nada para cambiar.",
+          "ok")
+    if creados:
+        flash("Hay pallets nuevos: imprimí sus etiquetas con el botón de abajo.", "aviso")
+    if borrados:
+        flash(f"Se borraron los pallets que ya no hacían falta ({', '.join(pl.codigo_pallet(p) for p in borrados)}): "
+              "si tenían la etiqueta pegada, sacala.", "aviso")
+    return volver
+
+
+@bp.route("/trasvasos/<int:trasvaso_id>/borrar", methods=["GET", "POST"])
+def trasvaso_borrar(trasvaso_id):
+    t = _trasvaso_o_404(trasvaso_id)
+    remitos = _remitos(trasvaso_id)
+    problema = None
+    if not t["anulado"]:
+        activos = {tipo: m for tipo, m in remitos.items() if not m["anulado"]}
+        if "INGRESO" in activos:
+            # Lo que salió del depósito vuelve al stock a la vez que se saca lo que entró envasado.
+            problema = cr.problema_al_borrar(activos["INGRESO"], [m["id"] for m in activos.values()])
+        if not problema:
+            problemas = vacios.problemas_al_anular(trasvaso_id=trasvaso_id)
+            if problemas:
+                problema = ("No se puede borrar: " + "; ".join(problemas)
+                            + ". Primero corregí los envases en Trasvasos → Envases vacíos y sucios.")
+    if request.method == "GET" or problema:
+        if problema and request.method == "POST":
+            flash(problema, "error")
+        ingreso = remitos.get("INGRESO")
+        return render_template(
+            "trasvaso_borrar.html", t=t, problema=problema, texto=_texto_trasvaso(_foto_trasvaso(t)).split("\n"),
+            armados=pl.pallets(ids=[r[0] for r in get_db().execute(
+                "SELECT id FROM pallets WHERE movimiento_id = ?", (ingreso["id"],))], con_contenido=False)
+            if ingreso else [],
+            fotos=ft.de_movimiento(ingreso["id"]) if ingreso else [],
+        )
+    db = get_db()
+    archivos = []
+    try:
+        cr.anotar("BORRADO", _texto_trasvaso(_foto_trasvaso(t)), trasvaso_id=trasvaso_id, empresa_id=t["empresa_id"],
+                  tipo="TRASVASO", fecha=t["fecha"], remito=remito_de_orden(t["orden"]))
+        for m in sorted(remitos.values(), key=lambda m: m["tipo"]):  # primero el egreso
+            archivos += cr.borrar_movimiento(m)
+        db.execute("DELETE FROM envase_movs WHERE trasvaso_id = ?", (trasvaso_id,))
+        db.execute("DELETE FROM trasvasos WHERE id = ?", (trasvaso_id,))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    cr.archivar_fotos(archivos)
+    flash(f"Trasvaso borrado (orden {t['orden']} del {formato_fecha(t['fecha'])}). Se recalcularon el stock y los "
+          "envases. Queda anotado en Movimientos → Cambios y borrados.", "ok")
+    return redirect(url_for("trasvasos.trasvasos", empresa_id=t["empresa_id"]))
 
 
 # ------------------------------------------------------ envases vacíos y sucios
@@ -399,4 +685,6 @@ def envases_vacios():
 def api_envases():
     """Los envases vacíos y sucios que la empresa tiene en el depósito: {envase_id: {'VACIO': x, 'SUCIO': y}}."""
     empresa_id = _int_o_none(request.args.get("empresa_id"))
-    return jsonify({str(eid): s for eid, s in vacios.saldos_de(empresa_id).items()} if empresa_id else {})
+    saldos = vacios.saldos_de(empresa_id, _int_o_none(request.args.get("excluir")),
+                              _int_o_none(request.args.get("excluir_trasvaso"))) if empresa_id else {}
+    return jsonify({str(eid): s for eid, s in saldos.items()})

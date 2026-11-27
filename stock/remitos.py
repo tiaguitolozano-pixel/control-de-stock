@@ -2,16 +2,22 @@
 
 Leer los renglones de productos del formulario, revisarlos, chequear el stock de lo que sale y
 revisar si un ingreso se puede anular.
+
+El stock se revisa por fecha: no alcanza con que hoy haya mercadería, también tiene que haber habido el
+día del remito. Por ejemplo, si un lote entró el 27/11, no puede salir nada de ese lote el 05/11. Se cuenta
+el saldo al terminar cada día (lo que entra un día se puede sacar ese mismo día).
 """
 from collections import defaultdict
 
 from . import insumos as ins
 from . import pallets as pl
 from . import vacios
-from .db import get_db, stock_de_lotes, stock_por_lote_id
+from .db import get_db, stock_de_lotes
+from .formato import formato_fecha, formato_numero
 from .servicios import chequear_lote, obtener_o_crear_lote, parse_fecha, parse_numero
 
 CAMPOS_RENGLON = ("producto_id", "cantidad", "lote", "vencimiento", "lote_id")
+EPS = 1e-6
 
 
 def _int_o_none(valor):
@@ -44,12 +50,14 @@ def productos_de_empresa(empresa_id):
     return {r["id"]: r for r in get_db().execute("SELECT * FROM productos WHERE empresa_id = ?", (empresa_id,))}
 
 
-def revisar_renglones(tipo, renglones, productos):
+def revisar_renglones(tipo, renglones, productos, corrigiendo=None):
     """Revisa los renglones y junta los repetidos (mismo producto y lote se suman).
 
     tipo 'INGRESO': el lote se escribe y lleva vencimiento. tipo 'EGRESO': se elige un lote que ya existe.
     Devuelve (items, vencimientos, errores): items = {(producto_id, lote o lote_id): cantidad} y
     vencimientos = {(producto_id, LOTE): (lote, vencimiento)} (solo en el ingreso).
+    corrigiendo: el remito que se está corrigiendo (si es el único ingreso de un lote, su vencimiento se
+    puede cambiar).
     """
     items, vencimientos, errores = defaultdict(float), {}, []
     for r in renglones:
@@ -75,7 +83,7 @@ def revisar_renglones(tipo, renglones, productos):
                 continue
             if clave not in vencimientos or vto:
                 vencimientos[clave] = (r["lote"], vto)
-            error = chequear_lote(p["id"], r["lote"], vto, p["codigo"])
+            error = chequear_lote(p["id"], r["lote"], vto, p["codigo"], corrigiendo)
             if error:
                 errores.append(error)
                 continue
@@ -88,31 +96,174 @@ def revisar_renglones(tipo, renglones, productos):
     return items, vencimientos, errores
 
 
-def chequear_stock(items, productos):
-    """Errores si algún lote no tiene stock suficiente para lo que sale. items = {(producto_id, lote_id): cantidad}."""
+# ------------------------------------------------------------ saldos por fecha
+
+
+def saldos_por_fecha(lote_ids, excluir=(), agregar=()):
+    """El saldo de cada lote al terminar cada día con movimientos: {lote_id: [(fecha, saldo), ...]}, en orden.
+
+    Cuenta los remitos que no están anulados. excluir: ids de remitos que no se cuentan (por ejemplo, el que
+    se está corrigiendo). agregar: [(lote_id, fecha, cantidad con signo)] que se suman como si ya estuvieran.
+    """
+    ids = sorted({lid for lid in lote_ids if lid})
+    if not ids:
+        return {}
+    sql = f"""SELECT i.lote_id, m.fecha,
+                     SUM(CASE WHEN m.tipo = 'INGRESO' THEN i.cantidad ELSE -i.cantidad END) AS neto
+              FROM movimiento_items i JOIN movimientos m ON m.id = i.movimiento_id
+              WHERE m.anulado = 0 AND i.lote_id IN ({','.join('?' * len(ids))})"""
+    params = list(ids)
+    excluir = [x for x in excluir if x]
+    if excluir:
+        sql += f" AND m.id NOT IN ({','.join('?' * len(excluir))})"
+        params += excluir
+    por_dia = defaultdict(lambda: defaultdict(float))
+    for r in get_db().execute(sql + " GROUP BY i.lote_id, m.fecha", params):
+        por_dia[r["lote_id"]][r["fecha"]] += r["neto"]
+    for lid, fecha, cantidad in agregar:
+        por_dia[lid][fecha] += cantidad
+    res = {}
+    for lid in ids:
+        acumulado, lista = 0.0, []
+        for fecha in sorted(por_dia[lid]):
+            acumulado = round(acumulado + por_dia[lid][fecha], 6)
+            lista.append((fecha, acumulado))
+        res[lid] = lista
+    return res
+
+
+def saldo_al(lista, fecha):
+    """El saldo al terminar el día `fecha`. lista: [(fecha, saldo)] en orden (ver saldos_por_fecha)."""
+    saldo = 0.0
+    for f, s in lista:
+        if f > fecha:
+            break
+        saldo = s
+    return saldo
+
+
+def disponible_desde(lista, fecha):
+    """Cuánto se puede sacar con esa fecha sin que el saldo quede negativo ese día ni ningún día después."""
+    minimo = saldo_al(lista, fecha)
+    for f, s in lista:
+        if f > fecha:
+            minimo = min(minimo, s)
+    return max(0.0, round(minimo, 6))
+
+
+def negativos_nuevos(antes, despues):
+    """Compara los saldos por fecha antes y después de un cambio.
+
+    Devuelve {lote_id: (fecha, saldo)} con el primer día en que el saldo queda negativo y más bajo que antes.
+    Lo que ya estaba negativo y no empeora no cuenta (así un error viejo no traba lo demás).
+    """
+    res = {}
+    for lid, lista in despues.items():
+        previo = antes.get(lid, [])
+        for f in sorted({f for f, _ in lista} | {f for f, _ in previo}):
+            d, a = saldo_al(lista, f), saldo_al(previo, f)
+            if d < -EPS and d < a - EPS:
+                res[lid] = (f, d)
+                break
+    return res
+
+
+def nombre_lote(l):
+    """'A1 - Caja chica (lote L-1)' o '(sin lote)'."""
+    return f"{l['codigo']} - {l['descripcion']} ({('lote ' + l['lote']) if l['lote'] else 'sin lote'})"
+
+
+def datos_lotes(lote_ids):
+    """{lote_id: fila con lote, vencimiento, codigo, descripcion, unidad del producto}."""
+    ids = list({lid for lid in lote_ids if lid})
+    if not ids:
+        return {}
+    return {r["id"]: r for r in get_db().execute(
+        f"""SELECT l.id, l.lote, l.vencimiento, l.producto_id, p.codigo, p.descripcion, p.unidad
+            FROM lotes l JOIN productos p ON p.id = l.producto_id WHERE l.id IN ({','.join('?' * len(ids))})""",
+        ids,
+    )}
+
+
+def textos_negativos(negativos, inicio="", final=""):
+    """Un mensaje por lote que quedaría con saldo negativo: '{inicio}el saldo de X (lote L) quedaría en -5 cajas
+    el 05/11/2026{final}'."""
+    lotes = datos_lotes(negativos)
+    res = []
+    for lid, (fecha, saldo) in sorted(negativos.items(), key=lambda x: x[1][0]):
+        l = lotes.get(lid)
+        if l is None:
+            continue
+        res.append(f"{inicio}el saldo de {nombre_lote(l)} quedaría en {formato_numero(saldo)} {l['unidad'].lower()} "
+                   f"el {formato_fecha(fecha)}{final}")
+    return res
+
+
+def primer_egreso(lote_ids):
+    """{lote_id: fecha del primer egreso que no está anulado}."""
+    ids = list({lid for lid in lote_ids if lid})
+    if not ids:
+        return {}
+    return {r[0]: r[1] for r in get_db().execute(
+        f"""SELECT i.lote_id, MIN(m.fecha) FROM movimiento_items i JOIN movimientos m ON m.id = i.movimiento_id
+            WHERE m.anulado = 0 AND m.tipo = 'EGRESO' AND i.lote_id IN ({','.join('?' * len(ids))})
+            GROUP BY i.lote_id""",
+        ids,
+    )}
+
+
+def chequear_stock(items, productos, fecha=None, excluir=()):
+    """Errores si algún lote no tiene stock suficiente para lo que sale. items = {(producto_id, lote_id): cantidad}.
+
+    fecha: la del remito. Tiene que haber stock ese día y no puede quedar negativo ningún día después
+    (por ejemplo, por egresos que ya están cargados con fechas posteriores). Sin fecha, se mira el stock de hoy.
+    excluir: remitos que no se cuentan (al corregir un egreso, el mismo egreso).
+    """
     errores = []
     if not items:
         return errores
     lotes = {l["id"]: l for l in stock_de_lotes(lote_ids=[lid for _, lid in items], solo_con_stock=False)}
+    por_fecha = saldos_por_fecha(lotes, excluir=excluir)
+    dia = fecha or "9999-12-31"
     for (pid, lid), cant in items.items():
         l = lotes.get(lid)
         if l is None or l["producto_id"] != pid:
             errores.append(f"{productos[pid]['codigo']}: el lote elegido no corresponde al producto.")
-        elif cant > l["stock"] + 1e-9:
-            nombre = f"lote {l['lote']}" if l["lote"] else "sin lote"
+            continue
+        lista = por_fecha.get(lid, [])
+        hay = disponible_desde(lista, dia)
+        if cant <= hay + 1e-9:
+            continue
+        nombre, unidad = nombre_lote(l), l["unidad"].lower()
+        if not lista or dia >= lista[-1][0]:
+            # Lo de siempre: no alcanza lo que hay hoy.
+            errores.append(f"No hay stock suficiente de {nombre}: hay {formato_numero(hay)} y querés sacar "
+                           f"{formato_numero(cant)}.")
+            continue
+        entra = next((f for f, s in lista if f > dia and s > EPS), None)
+        if hay <= EPS and saldo_al(lista, dia) <= EPS and entra:
             errores.append(
-                f"No hay stock suficiente de {l['codigo']} - {l['descripcion']} ({nombre}): "
-                f"hay {l['stock']:g} y querés sacar {cant:g}."
+                f"No hay stock de {nombre} el {formato_fecha(dia)}: ese lote entró recién el {formato_fecha(entra)}. "
+                "Revisá la fecha de este remito, o la del ingreso de ese lote (por ejemplo, la del stock inicial)."
+            )
+        else:
+            errores.append(
+                f"No hay stock suficiente de {nombre} el {formato_fecha(dia)}: contando los remitos de ese día y de "
+                f"después, con esa fecha se pueden sacar como máximo {formato_numero(hay)} {unidad} y querés sacar "
+                f"{formato_numero(cant)}."
             )
     return errores
 
 
-def lineas_de_ingreso(items, vencimientos):
-    """Crea los lotes nuevos y devuelve [(producto_id, lote_id, cantidad)]. No hace commit."""
+def lineas_de_ingreso(items, vencimientos, corrigiendo=None):
+    """Crea los lotes nuevos y devuelve [(producto_id, lote_id, cantidad)]. No hace commit.
+
+    corrigiendo: el remito que se está corrigiendo (ver revisar_renglones).
+    """
     lineas = []
     for (pid, clave_lote), cant in items.items():
         lote, vto = vencimientos[(pid, clave_lote)]
-        lineas.append((pid, obtener_o_crear_lote(pid, lote, vto), cant))
+        lineas.append((pid, obtener_o_crear_lote(pid, lote, vto, corrigiendo), cant))
     return lineas
 
 
@@ -128,43 +279,42 @@ def lineas_de_egreso(items, productos):
     return lineas, plan
 
 
-def problema_al_anular_ingreso(movimiento, vuelve=None):
-    """Por qué no se puede anular un ingreso (texto para mostrar), o None si se puede.
+def problema_al_anular_ingreso(movimiento, tambien=(), verbo="anular"):
+    """Por qué no se puede anular (o borrar) un ingreso (texto para mostrar), o None si se puede.
 
-    vuelve: {lote_id: cantidad} que vuelve al stock a la vez (en un trasvaso se anula también lo que salió).
+    tambien: otros remitos que se anulan a la vez (en un trasvaso, lo que salió vuelve al stock).
+    verbo: 'anular' o 'borrar' (para los mensajes).
     """
     db = get_db()
+    hace = {"anular": "anulá", "borrar": "borrá"}.get(verbo, verbo)
     movimiento_id = movimiento["id"]
-    # Si ya se sacó mercadería de este ingreso, anularlo dejaría stock negativo.
-    items = db.execute(
-        """SELECT i.lote_id, i.cantidad, p.codigo, l.lote FROM movimiento_items i
-           JOIN productos p ON p.id = i.producto_id JOIN lotes l ON l.id = i.lote_id
-           WHERE i.movimiento_id = ?""",
-        (movimiento_id,),
-    ).fetchall()
-    stock = stock_por_lote_id({i["lote_id"] for i in items})
-    a_restar = defaultdict(float)
-    for i in items:
-        a_restar[i["lote_id"]] += i["cantidad"]
-    vuelve = vuelve or {}
-    problemas = [
-        i["codigo"] + (f" (lote {i['lote']})" if i["lote"] else "") for i in items
-        if stock.get(i["lote_id"], 0) - a_restar[i["lote_id"]] + vuelve.get(i["lote_id"], 0) < -1e-9
-    ]
-    if problemas:
-        return ("No se puede anular: el stock quedaría negativo para " + ", ".join(sorted(set(problemas)))
-                + ". Primero anulá los egresos que usaron esa mercadería.")
+    lote_ids = [r[0] for r in db.execute(
+        "SELECT DISTINCT lote_id FROM movimiento_items WHERE movimiento_id = ?", (movimiento_id,))]
+    # Si ya salió mercadería de este ingreso, sacarlo dejaría el saldo negativo (hoy o en alguna fecha).
+    antes = saldos_por_fecha(lote_ids)
+    despues = saldos_por_fecha(lote_ids, excluir=[movimiento_id, *tambien])
+    negativos = negativos_nuevos(antes, despues)
+    if negativos:
+        lotes = datos_lotes(negativos)
+        hoy = sorted({lotes[lid]["codigo"] + (f" (lote {lotes[lid]['lote']})" if lotes[lid]["lote"] else "")
+                      for lid in negativos if lid in lotes and despues[lid] and despues[lid][-1][1] < -EPS})
+        if hoy:
+            return (f"No se puede {verbo}: el stock quedaría negativo para " + ", ".join(hoy)
+                    + f". Primero {hace} los egresos que usaron esa mercadería.")
+        return (f"No se puede {verbo}: " + "; ".join(textos_negativos(negativos))
+                + f", porque hay egresos de ese lote con fecha anterior a los otros ingresos. Primero {hace} o "
+                "corregí esos egresos.")
     problemas = pl.problemas_al_anular(movimiento_id)
     if problemas:
-        return ("No se puede anular: " + "; ".join(problemas)
-                + ". Primero anulá esos egresos o desarmá esos pallets.")
+        return (f"No se puede {verbo}: " + "; ".join(problemas)
+                + f". Primero {hace} esos egresos o desarmá esos pallets.")
     problemas = ins.problemas_al_anular(movimiento)
     if problemas:
-        return ("No se puede anular: " + "; ".join(problemas)
-                + ". Primero anulá los egresos que sacaron esos pallets.")
+        return (f"No se puede {verbo}: " + "; ".join(problemas)
+                + f". Primero {hace} los egresos que sacaron esos pallets.")
     problemas = vacios.problemas_al_anular(movimiento_id=movimiento_id)
     if problemas:
-        return ("No se puede anular: " + "; ".join(problemas)
-                + ". Primero anulá los trasvasos o egresos que los usaron, o corregí los envases en "
+        return (f"No se puede {verbo}: " + "; ".join(problemas)
+                + f". Primero {hace} los trasvasos o egresos que los usaron, o corregí los envases en "
                 "Trasvasos → Envases vacíos y sucios.")
     return None

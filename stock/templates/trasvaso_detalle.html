@@ -4,6 +4,10 @@
 {% block contenido %}
 <h1>Trasvaso · Orden {{ t.orden }}
   {% if t.anulado %}<span class="etq anulado">ANULADO</span>{% endif %}</h1>
+<div class="acciones no-imprimir">
+  {% if not t.anulado %}<a class="boton" href="{{ url_for('trasvasos.trasvaso_editar', trasvaso_id=t.id) }}">✎ Editar</a>{% endif %}
+  <a class="boton secundario" href="{{ url_for('trasvasos.trasvaso_borrar', trasvaso_id=t.id) }}">🗑 Borrar</a>
+</div>
 <div class="tarjeta">
   <dl class="datos grilla2">
     <div><dt>Empresa</dt><dd>{{ t.empresa }}</dd></div>
@@ -59,12 +63,17 @@
   <a class="boton secundario" href="{{ url_for('trasvasos.trasvaso_nuevo', empresa_id=t.empresa_id) }}">Cargar otro trasvaso</a>
   <a class="boton secundario" href="{{ url_for('trasvasos.trasvasos') }}">Volver a trasvasos</a>
 </div>
+{% if cambios %}
+<h2 id="cambios">Cambios de este trasvaso</h2>
+{% from "_cambios.html" import lista_cambios %}{{ lista_cambios(cambios, con_remito=False) }}
+{% endif %}
 {% if not t.anulado %}
 <details class="tarjeta no-imprimir">
-  <summary>Anular este trasvaso (si se cargó mal)</summary>
+  <summary>Anular este trasvaso (si existió pero se canceló)</summary>
   <form method="post" action="{{ url_for('trasvasos.trasvaso_anular', trasvaso_id=t.id) }}" style="margin-top:12px">
     <p class="ayuda">No se borra: queda marcado como anulado, junto con sus remitos. Lo envasado sale del stock, lo que se vació vuelve,
-      y los envases vacíos y sucios vuelven a como estaban. Después podés cargarlo de nuevo bien.</p>
+      y los envases vacíos y sucios vuelven a como estaban. Si fue un error de carga, mejor corregilo con <strong>✎ Editar</strong>
+      o sacalo con <strong>🗑 Borrar</strong>.</p>
     <div class="campo"><label>Motivo *</label><input name="motivo" required placeholder="Ej.: cantidad mal cargada"></div>
     <button class="boton rojo">Anular trasvaso</button>
   </form>

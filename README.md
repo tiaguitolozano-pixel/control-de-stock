@@ -8,7 +8,8 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
 - **Empresas**: alta y edición de las empresas clientes (nombre, CUIT, contacto, teléfono).
 - **Productos**: cada empresa tiene sus productos (código, descripción, tipo de envase, unidades por pallet y
   kilos por unidad). Al crear un producto se carga su **stock inicial**, una fila por lote (lote, vencimiento y
-  cantidad): queda como un ingreso con el remito "STOCK INICIAL". Opcional y escondido: un aviso de stock mínimo.
+  cantidad): queda como un ingreso con el remito "STOCK INICIAL". Se corrige desde el mismo producto (**Editar**):
+  la fecha, los lotes, los vencimientos y las cantidades. Opcional y escondido: un aviso de stock mínimo.
   Dos empresas pueden usar el mismo código sin mezclarse.
 - **Kilos**: con los kilos por unidad de cada producto, el programa calcula los kilos totales (kilos por unidad ×
   cantidad) en el stock, en cada lote, en cada renglón de los remitos y en los totales.
@@ -33,9 +34,15 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
   - **Fotos** en las observaciones del remito (la mercadería al llegar, un daño, el camión cargado, el precinto…).
     Se eligen debajo de la observación general, se achican solas antes de guardarse y se pueden agregar más
     después, desde el remito. En el historial, al lado de la observación, se ve cuántas fotos tiene cada remito.
-  - No deja sacar más de lo que hay (ni del producto ni del lote).
+  - No deja sacar más de lo que hay (ni del producto ni del lote), y las fechas cuentan: no se puede sacar
+    mercadería con fecha anterior a la de su ingreso (lo que entra un día puede salir ese mismo día), ni dejar sin
+    stock a los egresos que ya están cargados con fechas posteriores.
   - Avisa si se carga dos veces el mismo remito de ingreso.
-  - Los remitos mal cargados no se borran: se **anulan** con un motivo y quedan en el historial.
+  - Un remito mal cargado se **corrige** con ✎ Editar (fecha, número, transporte, productos, lotes, cantidades,
+    insumos y envases: el stock y los pallets se recalculan solos) o se **borra** con 🗑 Borrar si se cargó por
+    error. Cada corrección y cada borrado quedan anotados en **Movimientos → Cambios y borrados** (de los borrados,
+    todo lo que tenían). Un remito que existió pero se canceló se **anula** con un motivo y queda tachado en el
+    historial.
 - **Trasvasos**: pasar un producto de un envase a otro por orden del cliente (descargar un isotanque del puerto en
   tambores o cisternas, pasar cisternas a tambores o al revés). Se cargan como un ingreso, con el número de orden, de
   dónde sale el producto (de afuera o del stock del depósito), los envases vacíos que se usan y los sucios que quedan.
@@ -43,6 +50,8 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
   sucios. Ver [Trasvasos](#trasvasos).
 - **Stock actual** por empresa y producto, con la fecha de vencimiento más próxima (y aviso en amarillo si se
   cargó un stock mínimo y está por debajo). Se puede abrir el detalle por lote debajo de cada código y buscar por lote.
+  Si algún lote quedó con saldo negativo en alguna fecha (egresos con fecha anterior a la mercadería, por ejemplo
+  porque el stock inicial se cargó con la fecha de hoy), se avisa arriba, con el enlace para corregirlo.
 - **Stock por lote**, con los vencidos en rojo y los que vencen en los próximos 60 días en amarillo.
 - **Importar desde Excel** el conteo inicial (por ejemplo, lo que sale del programa Cristal):
   crea solas las empresas y productos que falten. Hay una planilla de ejemplo para bajar.
@@ -50,6 +59,7 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
 - **Historial de movimientos** tipo debe y haber (ingresos y egresos en columnas separadas), que se lee de arriba
   hacia abajo (primero lo más viejo) y separado por producto y lote: cada producto muestra su cantidad general y,
   debajo, los movimientos de cada lote con el saldo del lote después de cada remito (en cantidad y en kilos).
+  Cada remito tiene su ✎ para corregirlo, y un saldo negativo se ve en rojo.
   Arriba, los totales por tipo de envase y en kilos. Filtros por empresa, tipo, fechas, remito, producto/lote y
   transporte (chofer, patente o contenedor). Abajo, los insumos adicionales y los envases del cliente de esos remitos.
 - **Exportar a Excel** el stock y los movimientos (respeta los filtros), e imprimir.
@@ -121,8 +131,9 @@ esa empresa solo con esos envases (apartado **Envases vacíos del cliente**, rem
 1. **Empresas → Nueva empresa**: cargar las empresas clientes.
 2. **Productos → Nuevo producto**: cargar cada producto con su **stock inicial**, lo que hay hoy en el depósito
    (por ejemplo, lo que figura en Cristal): una fila por lote con su vencimiento y cantidad. Se guarda como un
-   ingreso con el remito "STOCK INICIAL" y la fecha elegida. Si un producto se creó sin stock inicial, se le puede
-   cargar después desde **Editar**, mientras no tenga remitos; o con un **+ Ingreso** con el remito "STOCK INICIAL".
+   ingreso con el remito "STOCK INICIAL" y la fecha elegida. Ojo con la fecha: tiene que ser la del conteo, o una
+   anterior a los egresos que se carguen después, porque no se puede sacar mercadería con fecha anterior. El stock
+   inicial se corrige (o se carga, si el producto se creó sin él) desde **Editar** del producto.
 
 A partir de ahí, cargar cada ingreso y egreso con su remito.
 
@@ -220,6 +231,7 @@ El teclado de la pantalla queda escondido para que no tape; con el botón ⌨ se
   `datos/fotos`, carpeta configurable con `FOTOS`), `trasvasos.py` las pantallas de trasvasos, `vacios.py` el stock
   de envases vacíos y sucios, `remitos.py` la lectura y revisión de los renglones de un remito (la usan los remitos y
   los trasvasos), `qr.py` los QR (en SVG, con la librería `qrcode`), `db.py` la base y sus migraciones,
+  `correcciones.py` editar y borrar remitos y el registro de cambios (tabla `cambios`),
   `templates/` el HTML, `static/remito.js` el formulario de remito (renglones, pallets, kilos, transporte, insumos y
   fotos; lo usan el ingreso, el egreso y el trasvaso) y `static/fotos.js` el achicado de las fotos en el navegador.
 - Un trasvaso es una fila de `trasvasos` más uno o dos `movimientos` con `trasvaso_id` (el ingreso y, si sale del
@@ -227,6 +239,9 @@ El teclado de la pantalla queda escondido para que no tape; con el botón ⌨ se
   `trasvaso_id` o `movimiento_id` si vienen de un trasvaso o de un remito): el saldo de cada empresa es la suma de
   los que no están anulados, igual que el stock.
 - Los kilos no se guardan en los remitos: siempre se calculan con los kilos por unidad actuales del producto.
+- Los saldos se revisan por fecha (`remitos.saldos_por_fecha`, el saldo de cada lote al terminar cada día): un
+  egreso solo puede sacar lo que hay ese día sin dejar negativo ningún día después. Al corregir o borrar, solo se
+  frena lo que crea o agranda un saldo negativo, así un error viejo no traba lo demás (y se avisa en Stock).
 - Lo que tiene cada pallet sale de los movimientos de la tabla `pallet_movs` (nunca se pisa un saldo), así que
   anular un egreso devuelve sola la mercadería a sus pallets.
 - Pruebas: `pip install -r requirements-dev.txt` y `pytest`.

@@ -50,8 +50,11 @@ def leer_formulario(form):
     return renglones, errores, textos
 
 
-def saldos_cliente(empresa_id=None):
-    """{(empresa_id, insumo_id): saldo} de los insumos del cliente (los pallets) en el depósito."""
+def saldos_cliente(empresa_id=None, excluir_movimiento=None):
+    """{(empresa_id, insumo_id): saldo} de los insumos del cliente (los pallets) en el depósito.
+
+    excluir_movimiento: un remito que no se cuenta (el que se está corrigiendo).
+    """
     sql = """SELECT m.empresa_id, mi.insumo_id,
                     SUM(CASE WHEN m.tipo = 'INGRESO' THEN mi.cantidad ELSE -mi.cantidad END) AS saldo
              FROM movimiento_insumos mi JOIN movimientos m ON m.id = mi.movimiento_id
@@ -60,6 +63,9 @@ def saldos_cliente(empresa_id=None):
     if empresa_id:
         sql += " AND m.empresa_id = ?"
         params.append(empresa_id)
+    if excluir_movimiento:
+        sql += " AND m.id <> ?"
+        params.append(excluir_movimiento)
     filas = get_db().execute(sql + " GROUP BY m.empresa_id, mi.insumo_id", params).fetchall()
     return {(r["empresa_id"], r["insumo_id"]): round(r["saldo"], 6) for r in filas}
 
@@ -129,6 +135,33 @@ def problemas_al_anular(movimiento):
                 f"y este ingreso trajo {_texto_cantidad(cantidad, unidad)})"
             )
     return problemas
+
+
+def problemas_al_cambiar(empresa_id, tipo, renglones, movimiento_id):
+    """Al corregir un remito: con los insumos nuevos, ningún saldo del cliente puede quedar negativo
+    (o más negativo de lo que ya estaba). renglones: [(insumo_id, propietario, cantidad)]."""
+    actuales = saldos_cliente(empresa_id)
+    sin_este = saldos_cliente(empresa_id, excluir_movimiento=movimiento_id)
+    signo = 1 if tipo == "INGRESO" else -1
+    nuevos = defaultdict(float)
+    for iid, propietario, cantidad in renglones:
+        if propietario == "CLIENTE":
+            nuevos[iid] += signo * cantidad
+    nombres, errores = _nombres(), []
+    for iid in sorted(set(nuevos) | {i for (_, i) in actuales} | {i for (_, i) in sin_este}):
+        hay = sin_este.get((empresa_id, iid), 0)
+        queda = round(hay + nuevos.get(iid, 0), 6)
+        if queda < -EPS and queda < actuales.get((empresa_id, iid), 0) - EPS:
+            ins = nombres[iid]
+            if tipo == "EGRESO":
+                errores.append(f"{ins['nombre']} del cliente: sin contar este remito, en el depósito hay "
+                               f"{_texto_cantidad(hay, ins['unidad'])} de esta empresa y querés sacar "
+                               f"{_texto_cantidad(-nuevos.get(iid, 0), ins['unidad'])}.")
+            else:
+                errores.append(f"{ins['nombre']} del cliente: con este cambio quedarían "
+                               f"{_texto_cantidad(queda, ins['unidad'])} en el depósito, porque ya salieron con "
+                               "otros remitos.")
+    return errores
 
 
 def de_movimiento(movimiento_id):

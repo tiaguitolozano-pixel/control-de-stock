@@ -238,8 +238,10 @@ def test_no_se_anula_si_lo_envasado_ya_salio_o_los_sucios_se_lavaron(app, client
     r = client.post("/trasvasos/1/anular", data={"motivo": "x"}, follow_redirects=True)
     assert "las cisternas sucias de esta empresa quedarían en negativo" in texto(r)
     anotar(client, app, "Cisternas", "CONTEO_SUCIOS", 2)
-    # Salieron 3 de los tambores envasados: anular dejaría stock negativo.
-    movimiento(client, "egreso", [(TAMBORES, "3", lote_id(app, TAMBORES, "L-C"))], remito="E-1")
+    # Salieron 3 de los tambores envasados: anular dejaría stock negativo. (El egreso va con fecha posterior al
+    # trasvaso: antes de esa fecha esos tambores no existían.)
+    assert movimiento(client, "egreso", [(TAMBORES, "3", lote_id(app, TAMBORES, "L-C"))], remito="E-1",
+                      fecha="2026-11-21").status_code == 302
     r = client.post("/trasvasos/1/anular", data={"motivo": "x"}, follow_redirects=True)
     assert "el stock quedaría negativo para BG-T200" in texto(r)
     assert stock(app, TAMBORES) == 5

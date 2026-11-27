@@ -17,6 +17,23 @@
   {% endfor %}
 </div>
 
+{% if negativos %}
+<div class="tarjeta aviso-amarillo" id="aviso-negativos">
+  <strong>⚠ {{ 'Hay 1 lote que quedó' if negativos|length == 1 else 'Hay ' ~ negativos|length ~ ' lotes que quedaron' }} con saldo negativo en alguna fecha.</strong>
+  Hay egresos cargados con fecha anterior a la mercadería, por ejemplo si el stock inicial se cargó con la fecha de hoy.
+  Corregí la fecha del stock inicial (en el producto, con Editar) o la del remito (con ✎ Editar en el historial).
+  <ul class="lista-negativos">
+    {% for n in negativos[:10] %}
+    <li><a href="{{ url_for('stock.movimientos', empresa_id=n.empresa_id, producto=n.codigo) }}"><strong>{{ n.codigo }}</strong> · {{ n.descripcion }}</a>
+      <span class="ayuda">· {{ n.empresa }} · {{ ('lote ' ~ n.lote) if n.lote else 'sin lote' }}</span>:
+      negativo desde el {{ n.desde|fecha }} (llega a {{ n.minimo|num }} {{ n.unidad|lower }}).
+      <a href="{{ url_for('stock.producto_form', producto_id=n.producto_id, volver=request.full_path, _anchor='tarjeta-stock-inicial') }}">Editar el stock inicial</a></li>
+    {% endfor %}
+    {% if negativos|length > 10 %}<li>Y {{ negativos|length - 10 }} más.</li>{% endif %}
+  </ul>
+</div>
+{% endif %}
+
 <div class="acciones">
   <a class="boton verde" href="{{ url_for('stock.movimiento_nuevo', tipo='ingreso', empresa_id=filtros.empresa_id) }}">+ Cargar ingreso</a>
   <a class="boton rojo" href="{{ url_for('stock.movimiento_nuevo', tipo='egreso', empresa_id=filtros.empresa_id) }}">− Cargar egreso</a>
