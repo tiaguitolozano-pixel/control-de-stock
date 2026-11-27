@@ -1,5 +1,5 @@
 // Lo que comparten las pantallas de carga (ingreso, egreso y trasvaso): números, transporte,
-// renglones de productos (pallets + sueltas = total, kilos), saldo de pallets y envases del cliente y fotos.
+// renglones de productos (cantidad, en cuántos pallets va y kilos), saldo de pallets y envases del cliente y fotos.
 window.Remito = (function () {
   const fmt = n => Number(n).toLocaleString('es-AR', {maximumFractionDigits: 3});
   const fmtCampo = n => Number(n).toLocaleString('es-AR', {maximumFractionDigits: 3, useGrouping: false});
@@ -14,15 +14,29 @@ window.Remito = (function () {
     else if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
     return Number(t);
   }
-  function textoPallets(cant, porPallet, unidad) {
-    if (!porPallet || !(cant > 0)) return '';
-    const enteros = Math.floor(cant / porPallet + 1e-9);
-    let resto = cant - enteros * porPallet;
+  // En cuántos pallets va una cantidad, contando el último aunque no esté lleno (así se arman y se cargan):
+  // 80 bolsas con 48 por pallet = 2 pallets, uno completo y otro con 32. Igual que formato.texto_pallets.
+  function contarPallets(cant, porPallet) {
+    if (!(porPallet > 0) || !(cant > 0)) return null;
+    const completos = Math.floor(cant / porPallet + 1e-9);
+    let resto = r3(cant - completos * porPallet);
     if (resto < 1e-9) resto = 0;
-    const palabra = enteros === 1 ? 'pallet' : 'pallets';
-    if (!resto) return '= ' + enteros + ' ' + palabra;
-    if (!enteros) return '= menos de 1 pallet';
-    return '= ' + enteros + ' ' + palabra + ' + ' + fmt(resto) + ' ' + (unidad || '').toLowerCase();
+    return {total: completos + (resto ? 1 : 0), completos, resto};
+  }
+  const palabraPallets = n => n === 1 ? 'pallet' : 'pallets';
+  // El pallet incompleto: '1 completo + 1 de 32 bolsas', o 'de 32 bolsas' si es el único.
+  function detallePallets(c, unidad) {
+    if (!c || !c.resto) return '';
+    const u = unidad ? ' ' + unidad.toLowerCase() : '';
+    if (!c.completos) return 'de ' + fmt(c.resto) + u;
+    return c.completos + (c.completos === 1 ? ' completo' : ' completos') + ' + 1 de ' + fmt(c.resto) + u;
+  }
+  function textoPallets(cant, porPallet, unidad) {
+    const c = contarPallets(cant, porPallet);
+    if (!c) return '';
+    const base = c.total + ' ' + palabraPallets(c.total);
+    if (!c.resto) return base;
+    return c.completos ? base + ' (' + detallePallets(c, unidad) + ')' : base + ' ' + detallePallets(c, unidad);
   }
 
   // ---- transporte: autocompletar con el último viaje del chofer, patentes y contenedor
@@ -96,8 +110,8 @@ window.Remito = (function () {
         let txt = l.lote ? 'Lote ' + l.lote : 'Sin lote';
         if (l.vencimiento) txt += ' · vence ' + dmy(l.vencimiento) + (l.vencimiento < op.hoy ? ' (VENCIDO)' : (l.vencimiento <= op.limite ? ' (por vencer)' : ''));
         txt += ' · hay ' + fmt(l.stock) + ' ' + p.unidad;
-        const pal = textoPallets(l.stock, p.por_pallet, p.unidad);
-        if (pal) txt += ' (' + pal.slice(2) + ')';
+        const c = contarPallets(l.stock, Number(p.por_pallet));
+        if (c) txt += ' (' + c.total + ' ' + palabraPallets(c.total) + ')';
         html += `<option value="${l.id}"${s}>${esc(txt)}</option>`;
       });
       return html;
@@ -122,24 +136,30 @@ window.Remito = (function () {
       return res;
     }
 
-    // Totales al pie: cantidad por tipo de envase y kilos (kilos por unidad × cantidad).
+    // Totales al pie: cantidad por tipo de envase, pallets (cada renglón con su pallet incompleto) y kilos
+    // (kilos por unidad × cantidad).
     function resumen() {
       const porEnvase = new Map();
-      let kilos = 0, sinKilos = 0;
+      let kilos = 0, sinKilos = 0, pallets = 0, sinPallets = 0;
       for (const l of lineas()) {
         const p = l.producto;
         const clave = (p.unidad || '').toLowerCase();
         porEnvase.set(clave, (porEnvase.get(clave) || 0) + l.cantidad);
         if (p.kilos) kilos += l.cantidad * p.kilos; else sinKilos++;
+        const c = contarPallets(l.cantidad, Number(p.por_pallet));
+        if (c) pallets += c.total; else sinPallets++;
       }
-      return {porEnvase, kilos: r3(kilos), sinKilos};
+      return {porEnvase, kilos: r3(kilos), sinKilos, pallets, sinPallets};
     }
+    const sinDato = (n, que) => `<div class="ayuda">${n === 1 ? '1 producto' : n + ' productos'} sin ${que}</div>`;
     function actualizarTotales() {
       const t = resumen();
       if (op.totalCantidades) op.totalCantidades.innerHTML =
         [...t.porEnvase].map(([u, c]) => `<div>${fmt(r3(c))} ${esc(u)}</div>`).join('') || '—';
+      if (op.totalPallets) op.totalPallets.innerHTML = (t.pallets ? t.pallets + ' ' + palabraPallets(t.pallets) : '—') +
+        (t.sinPallets ? sinDato(t.sinPallets, 'unidades por pallet') : '');
       if (op.totalKilos) op.totalKilos.innerHTML = (t.kilos ? fmt(t.kilos) + ' kg' : '—') +
-        (t.sinKilos ? `<div class="ayuda">${t.sinKilos === 1 ? '1 producto' : t.sinKilos + ' productos'} sin kilos</div>` : '');
+        (t.sinKilos ? sinDato(t.sinKilos, 'kilos') : '');
       if (op.alCambiar) op.alCambiar();
     }
 
@@ -152,74 +172,50 @@ window.Remito = (function () {
            <td><input type="date" name="${campo('vencimiento')}" value="${esc(r.vencimiento)}"></td>`;
       tr.innerHTML = `<td><select name="${campo('producto_id')}">${opcionesProducto(r.producto_id)}</select><div class="info-prod"></div></td>
         ${celdaLote}
-        <td><input class="pallets-input" inputmode="decimal" placeholder="—" aria-label="Pallets completos"></td>
-        <td><input class="sueltas-input" inputmode="decimal" placeholder="—" aria-label="Unidades sueltas"></td>
-        <td><input name="${campo('cantidad')}" inputmode="decimal" placeholder="0" value="${esc(r.cantidad)}" aria-label="Cantidad total">
+        <td><input name="${campo('cantidad')}" inputmode="decimal" placeholder="0" value="${esc(r.cantidad)}" aria-label="Cantidad">
             <div class="conv"></div></td>
+        <td class="pallets-renglon"></td>
         <td class="num kilos-renglon"></td>
         <td><button type="button" class="boton chico secundario" title="Quitar">✕</button></td>`;
       const selProd = tr.querySelector('select');
       const cant = tr.querySelector(`input[name="${campo('cantidad')}"]`);
-      const pal = tr.querySelector('.pallets-input');
-      const sue = tr.querySelector('.sueltas-input');
       const conv = tr.querySelector('.conv');
       const info = tr.querySelector('.info-prod');
+      const celdaPallets = tr.querySelector('.pallets-renglon');
       const celdaKilos = tr.querySelector('.kilos-renglon');
 
-      function porPallet() { const p = productoDe(selProd.value); return p && p.por_pallet ? Number(p.por_pallet) : 0; }
-      function actualizarConv() {
-        // Debajo del total: en qué unidad se cuenta. Al costado: los kilos del renglón.
+      function actualizarRenglon() {
+        // Debajo de la cantidad: en qué unidad se cuenta. Al costado: en cuántos pallets va (el incompleto
+        // también es un pallet: 80 bolsas con 48 por pallet = 2 pallets) y los kilos.
         const p = productoDe(selProd.value);
         const t = leerNumero(cant.value);
         conv.textContent = p ? 'en ' + (p.unidad || '').toLowerCase() : '';
+        const c = p ? contarPallets(t, Number(p.por_pallet)) : null;
+        if (!p) celdaPallets.textContent = '';
+        else if (!p.por_pallet) celdaPallets.innerHTML = '<span class="ayuda" title="Cargá las unidades por pallet en el producto">sin unidades por pallet</span>';
+        else if (!c) celdaPallets.textContent = '—';
+        else celdaPallets.innerHTML = `<strong>${c.total} ${palabraPallets(c.total)}</strong>` +
+          (c.resto ? `<div class="ayuda">${esc(detallePallets(c, p.unidad))}</div>` : '');
         if (!p) celdaKilos.textContent = '';
         else if (!p.kilos) { celdaKilos.innerHTML = '<span class="ayuda" title="Cargá los kilos por unidad en el producto">sin kilos</span>'; }
         else celdaKilos.innerHTML = (t > 0 ? '<strong>' + fmt(r3(t * p.kilos)) + ' kg</strong>' : '—');
         actualizarTotales();
       }
-      // Pallets completos + sueltas -> total (mientras se escribe)
-      function desdePartes() {
-        const pp = porPallet();
-        if (!pp) return;
-        const P = leerNumero(pal.value), s = leerNumero(sue.value);
-        const total = (P > 0 ? P : 0) * pp + (s > 0 ? s : 0);
-        cant.value = total > 0 ? fmtCampo(r3(total)) : '';
-        actualizarConv();
-      }
-      // Total -> pallets completos + sueltas. También ordena: si las sueltas llegan a un pallet, pasan a pallets.
-      function desdeTotal() {
-        const pp = porPallet(), t = leerNumero(cant.value);
-        if (!pp || !(t > 0)) { pal.value = ''; sue.value = ''; actualizarConv(); return; }
-        const P = Math.floor(t / pp + 1e-9);
-        const s = r3(t - P * pp);
-        pal.value = String(P);
-        sue.value = s > 1e-9 ? fmtCampo(s) : '0';
-        actualizarConv();
-      }
-      function prepararPallets() {
-        const p = productoDe(selProd.value);
-        const pp = porPallet();
-        const ayuda = pp ? `1 pallet = ${fmt(pp)} unidades`
-                         : 'Este producto no tiene cargadas las unidades por pallet: escribí la cantidad total';
-        for (const i of [pal, sue]) { i.disabled = !pp; i.placeholder = pp ? '0' : '—'; i.title = ayuda; }
+      function prepararProducto() {
         // Los datos del producto, debajo del nombre.
+        const p = productoDe(selProd.value);
         if (!p) info.textContent = '';
         else {
           const u = (p.unidad || '').toLowerCase();
-          info.textContent = (pp ? `${fmt(pp)} ${u} por pallet` : 'sin unidades por pallet') + ' · ' +
+          info.textContent = (p.por_pallet ? `${fmt(p.por_pallet)} ${u} por pallet` : 'sin unidades por pallet') + ' · ' +
                              (p.kilos ? `${fmt(p.kilos)} kg por unidad` : 'sin kilos por unidad');
         }
-        desdeTotal();
+        actualizarRenglon();
       }
-      cant.addEventListener('input', desdeTotal);
-      pal.addEventListener('input', desdePartes);
-      sue.addEventListener('input', desdePartes);
-      // Al salir del casillero: las sueltas que completan pallets pasan a pallets (el total no cambia).
-      pal.addEventListener('change', desdeTotal);
-      sue.addEventListener('change', desdeTotal);
+      cant.addEventListener('input', actualizarRenglon);
       selProd.addEventListener('change', () => {
         if (esEgreso) tr.querySelector(`select[name="${campo('lote_id')}"]`).innerHTML = opcionesLote(selProd.value);
-        prepararPallets();
+        prepararProducto();
       });
       if (esEgreso) tr.querySelector(`select[name="${campo('lote_id')}"]`).addEventListener('change', actualizarTotales);
       else tr.querySelectorAll(`input[name="${campo('lote')}"], input[name="${campo('vencimiento')}"]`)
@@ -230,7 +226,7 @@ window.Remito = (function () {
         actualizarTotales();
       });
       cuerpo.appendChild(tr);
-      prepararPallets();
+      prepararProducto();
       return tr;
     }
 
@@ -323,5 +319,5 @@ window.Remito = (function () {
     prepararFotos(input, form, mostrarPrevia);
   }
 
-  return {fmt, fmtCampo, r3, dmy, esc, leerNumero, textoPallets, transporte, tabla, insumosCliente, envasesCliente, fotos};
+  return {fmt, fmtCampo, r3, dmy, esc, leerNumero, contarPallets, textoPallets, transporte, tabla, insumosCliente, envasesCliente, fotos};
 })();

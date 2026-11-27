@@ -24,11 +24,28 @@ def formato_fecha(valor):
     return f"{partes[2]}/{partes[1]}/{partes[0]}"
 
 
+def contar_pallets(cantidad, por_pallet):
+    """(pallets, completos, resto): en cuántos pallets va la cantidad, contando el último aunque no esté lleno.
+
+    80 bolsas con 48 por pallet -> (2, 1, 32): un pallet completo y otro con 32 bolsas.
+    """
+    cantidad, por_pallet = abs(float(cantidad)), float(por_pallet)
+    completos = math.floor(cantidad / por_pallet + 1e-9)
+    resto = round(cantidad - completos * por_pallet, 6)
+    if resto < 1e-9:
+        resto = 0
+    return completos + (1 if resto else 0), completos, resto
+
+
 def cantidad_pallets(cantidad, por_pallet):
-    """Cantidad expresada en pallets (con decimales), o None si el producto no tiene el dato."""
+    """En cuántos pallets va la cantidad (contando el incompleto), o None si el producto no tiene el dato.
+
+    Para salidas (cantidad negativa) el número es negativo.
+    """
     if not por_pallet or cantidad is None:
         return None
-    return round(float(cantidad) / float(por_pallet), 3)
+    pallets = contar_pallets(cantidad, por_pallet)[0]
+    return -pallets if float(cantidad) < 0 else pallets
 
 
 def texto_kilos(cantidad, kilos_por_unidad):
@@ -39,17 +56,18 @@ def texto_kilos(cantidad, kilos_por_unidad):
 
 
 def texto_pallets(cantidad, por_pallet, unidad=""):
-    """100 bolsas con 40 por pallet -> '2 pallets + 20 bolsas'."""
+    """En cuántos pallets va la cantidad, contando el último aunque no esté lleno (así se arman y se cargan).
+
+    80 bolsas con 48 por pallet -> '2 pallets (1 completo + 1 de 32 bolsas)'; 96 -> '2 pallets';
+    32 -> '1 pallet de 32 bolsas'.
+    """
     if not por_pallet or cantidad is None or cantidad <= 0:
         return ""
-    cantidad, por_pallet = float(cantidad), float(por_pallet)
-    enteros = math.floor(cantidad / por_pallet + 1e-9)
-    resto = cantidad - enteros * por_pallet
-    if resto < 1e-9:
-        resto = 0
-    palabra = "pallet" if enteros == 1 else "pallets"
+    pallets, completos, resto = contar_pallets(cantidad, por_pallet)
+    unidad = f" {unidad.lower()}" if unidad else ""
     if not resto:
-        return f"{enteros} {palabra}"
-    if enteros == 0:
-        return "menos de 1 pallet"
-    return f"{enteros} {palabra} + {formato_numero(resto)} {(unidad or '').lower()}".rstrip()
+        return f"{pallets} {'pallet' if pallets == 1 else 'pallets'}"
+    if not completos:
+        return f"1 pallet de {formato_numero(resto)}{unidad}"
+    return (f"{pallets} pallets ({completos} {'completo' if completos == 1 else 'completos'} + "
+            f"1 de {formato_numero(resto)}{unidad})")

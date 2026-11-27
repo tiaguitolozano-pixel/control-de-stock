@@ -14,10 +14,10 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
   cantidad) en el stock, en cada lote, en cada renglón de los remitos y en los totales.
 - **Tipos de envase**: bolsas, tambores de chapa, tambores de plástico, cisternas, bidones, cajas… La lista se
   puede ampliar y corregir desde Productos → Tipos de envase.
-- **Equivalencia en pallets**: con las unidades por pallet de cada producto, las cantidades se ven también en
-  pallets completos (columna "Equivale a": por ejemplo, 100 bolsas = 2 pallets + 20 bolsas). Al cargar un remito
-  se pueden escribir los pallets y las unidades sueltas, y la cantidad se calcula sola; si las sueltas completan
-  pallets, se pasan solas a pallets.
+- **Pallets**: con las unidades por pallet de cada producto, las cantidades se ven también en pallets, contando el
+  que no está lleno, porque también va en un pallet (columna "Equivale a": por ejemplo, 80 bolsas con 48 por pallet
+  = 2 pallets, 1 completo + 1 de 32 bolsas). Al cargar un remito se escribe el total (80 bolsas) y al costado se ve
+  en cuántos pallets va; abajo, el total de pallets del remito. En los Excel, "Equivale a (pallets)" es ese número.
 - **Lotes y vencimientos**: en cada ingreso se carga el lote y la fecha de vencimiento (opcionales).
   En los egresos se elige de qué lote sale, y se ofrece primero el que vence antes.
 - **Ingresos y egresos**: se cargan por remito (fecha, número de remito, datos del transporte: chofer, empresa de

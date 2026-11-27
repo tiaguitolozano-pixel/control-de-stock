@@ -72,15 +72,15 @@
       <thead><tr>
         <th style="width:30%">Producto</th>
         {% if modo == 'INGRESO' %}<th style="width:13%">Lote</th><th style="width:150px">Vencimiento</th>{% else %}<th style="width:26%">Lote (primero el que vence antes)</th>{% endif %}
-        <th style="width:90px">Pallets</th>
-        <th style="width:110px">+ Unidades sueltas</th>
-        <th style="width:120px">= Total *</th>
+        <th style="width:130px">Cantidad *</th>
+        <th style="width:210px">Pallets</th>
         <th style="width:110px" class="num">Kilos</th><th></th>
       </tr></thead>
       <tbody id="{{ id_cuerpo }}"></tbody>
       <tfoot><tr class="total">
-        <td colspan="{{ 5 if modo == 'INGRESO' else 4 }}">Totales</td>
-        <td id="{{ prefijo }}total-cantidades" class="num"></td><td id="{{ prefijo }}total-kilos" class="num"></td><td></td>
+        <td colspan="{{ 3 if modo == 'INGRESO' else 2 }}">Totales</td>
+        <td id="{{ prefijo }}total-cantidades"></td><td id="{{ prefijo }}total-pallets"></td>
+        <td id="{{ prefijo }}total-kilos" class="num"></td><td></td>
       </tr></tfoot>
     </table>
     </div>

@@ -31,8 +31,8 @@
     <h2 style="margin-top:0">Productos</h2>
     {{ campos.tabla_productos('renglones', tipo) }}
     <p class="ayuda">{% if tipo == 'INGRESO' %}Si la mercadería no tiene lote, dejalo vacío. El vencimiento es opcional.{% else %}En cada lote se muestra cuánto stock queda.{% endif %}
-      <br>La cantidad se carga como pallets completos más unidades sueltas, o directamente el total (bolsas, tambores…); así también se puede fraccionar.
-      Si en "unidades sueltas" escribís más de un pallet, al salir del casillero se pasan solas a pallets: 100 bolsas con 40 por pallet = 2 pallets + 20 sueltas, y el total sigue en 100.
+      <br>En la cantidad va el total de bolsas, tambores, etc. Los pallets se cuentan solos con las unidades por pallet del producto,
+      y el que no está lleno también es un pallet: 80 bolsas con 48 por pallet = 2 pallets (1 completo + 1 de 32 bolsas).
       Los kilos son los kilos por unidad del producto × la cantidad.</p>
     <p class="acciones" style="margin-top:12px">
       <button type="button" class="boton secundario" id="agregar">+ Agregar otro producto</button>
@@ -87,6 +87,7 @@
     cuerpo: document.getElementById('renglones'), modo: '{{ tipo }}', productos: () => productos,
     hoy: '{{ hoy_iso }}', limite: '{{ limite_aviso }}',
     totalCantidades: document.getElementById('total-cantidades'), totalKilos: document.getElementById('total-kilos'),
+    totalPallets: document.getElementById('total-pallets'),
   });
   const actualizarSaldosInsumos = R.insumosCliente(empresa, esEgreso, () => saldosInsumos);
   const actualizarSaldosEnvases = R.envasesCliente(empresa, () => saldosEnvases);

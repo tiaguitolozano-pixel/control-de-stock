@@ -5,7 +5,7 @@ from openpyxl import Workbook, load_workbook
 
 from stock import create_app, formato_numero
 from stock.db import envases, get_db, stock_de_lotes, stock_por_id, stock_por_lote_id
-from stock.formato import texto_pallets
+from stock.formato import cantidad_pallets, texto_pallets
 
 
 def crear_empresa(client, nombre="Acme SA"):
@@ -303,12 +303,16 @@ def crear_producto_pallet(client, empresa_id=1, codigo="B1", unidad="Bolsas", po
 
 
 def test_texto_pallets():
-    assert texto_pallets(100, 40, "Bolsas") == "2 pallets + 20 bolsas"
+    """El pallet que no está lleno también es un pallet (pedido del 27/11): 80 bolsas con 48 por pallet = 2."""
+    assert texto_pallets(80, 48, "Bolsas") == "2 pallets (1 completo + 1 de 32 bolsas)"
+    assert texto_pallets(100, 40, "Bolsas") == "3 pallets (2 completos + 1 de 20 bolsas)"
     assert texto_pallets(80, 40, "Bolsas") == "2 pallets"
     assert texto_pallets(40, 40, "Bolsas") == "1 pallet"
-    assert texto_pallets(10, 40, "Bolsas") == "menos de 1 pallet"
+    assert texto_pallets(10, 40, "Bolsas") == "1 pallet de 10 bolsas"
     assert texto_pallets(10, None, "Bolsas") == ""
     assert texto_pallets(0, 40, "Bolsas") == ""
+    assert cantidad_pallets(80, 48) == 2 and cantidad_pallets(96, 48) == 2 and cantidad_pallets(-80, 48) == -2
+    assert cantidad_pallets(10, None) is None
 
 
 def test_envase_obligatorio_y_otro_tipo_se_agrega_a_la_lista(app, client):
@@ -349,10 +353,10 @@ def test_stock_muestra_pallets(client):
     crear_producto_pallet(client)
     movimiento(client, "ingreso", [(1, "100", "L1")])
     texto = client.get("/").get_data(as_text=True)
-    assert "2 pallets + 20 bolsas" in texto
+    assert "3 pallets (2 completos + 1 de 20 bolsas)" in texto
     ws = load_workbook(BytesIO(client.get("/stock/excel").data)).active
     encabezados = [c.value for c in ws[1]]
-    assert ws.cell(2, encabezados.index("Equivale a (pallets)") + 1).value == 2.5
+    assert ws.cell(2, encabezados.index("Equivale a (pallets)") + 1).value == 3
 
 
 def test_transporte_se_guarda_y_autocompleta(app, client):
@@ -495,4 +499,4 @@ def test_cantidad_con_punto_de_miles(app, client):
     crear_producto_pallet(client, por_pallet="1.000")
     assert movimiento(client, "ingreso", [(1, "2.500")]).status_code == 302
     assert stock(app, 1) == 2500
-    assert "2 pallets + 500 bolsas" in client.get("/").get_data(as_text=True)
+    assert "3 pallets (2 completos + 1 de 500 bolsas)" in client.get("/").get_data(as_text=True)

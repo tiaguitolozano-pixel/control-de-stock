@@ -91,5 +91,6 @@
 </div>
 <p class="ayuda">{% if resumen.hay_minimos %}Las filas en amarillo están por debajo del stock mínimo configurado en el producto.{% endif %}
   "Kilos totales" es la cantidad por los kilos de cada unidad (se calcula en los productos que tienen cargados los kilos por unidad).
-  "Equivale a" dice cuántos pallets completos son, en los productos que tienen cargadas las unidades por pallet.</p>
+  "Equivale a" dice en cuántos pallets va, contando el que no está lleno (80 bolsas con 48 por pallet = 2 pallets), en los
+  productos que tienen cargadas las unidades por pallet.</p>
 {% endblock %}
