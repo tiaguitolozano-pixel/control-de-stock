@@ -55,6 +55,17 @@ def texto_kilos(cantidad, kilos_por_unidad):
     return f"{formato_numero(round(float(cantidad) * float(kilos_por_unidad), 3))} kg"
 
 
+def singular(unidad):
+    """El envase en singular, para 1 unidad: 'tambores de chapa' -> 'tambor de chapa', 'bidones' -> 'bidón'."""
+    primera, _, resto = (unidad or "").partition(" ")
+    for fin, cambio in (("ones", "ón"), ("ores", "or"), ("ades", "ad"), ("les", "l"), ("nes", "n"), ("res", "r"),
+                        ("s", "")):
+        if primera.lower().endswith(fin) and len(primera) > len(fin) + 1:
+            primera = primera[: -len(fin)] + cambio
+            break
+    return f"{primera} {resto}".strip()
+
+
 def texto_pallets(cantidad, por_pallet, unidad=""):
     """En cuántos pallets va la cantidad, contando el último aunque no esté lleno (así se arman y se cargan).
 
@@ -64,7 +75,7 @@ def texto_pallets(cantidad, por_pallet, unidad=""):
     if not por_pallet or cantidad is None or cantidad <= 0:
         return ""
     pallets, completos, resto = contar_pallets(cantidad, por_pallet)
-    unidad = f" {unidad.lower()}" if unidad else ""
+    unidad = f" {(singular(unidad) if resto == 1 else unidad).lower()}" if unidad else ""
     if not resto:
         return f"{pallets} {'pallet' if pallets == 1 else 'pallets'}"
     if not completos:

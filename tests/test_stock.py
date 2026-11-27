@@ -5,7 +5,7 @@ from openpyxl import Workbook, load_workbook
 
 from stock import create_app, formato_numero
 from stock.db import envases, get_db, stock_de_lotes, stock_por_id, stock_por_lote_id
-from stock.formato import cantidad_pallets, texto_pallets
+from stock.formato import cantidad_pallets, singular, texto_pallets
 
 
 def crear_empresa(client, nombre="Acme SA"):
@@ -309,6 +309,11 @@ def test_texto_pallets():
     assert texto_pallets(80, 40, "Bolsas") == "2 pallets"
     assert texto_pallets(40, 40, "Bolsas") == "1 pallet"
     assert texto_pallets(10, 40, "Bolsas") == "1 pallet de 10 bolsas"
+    # Si en el pallet incompleto queda una sola unidad, el envase va en singular.
+    assert texto_pallets(25, 4, "Tambores de chapa") == "7 pallets (6 completos + 1 de 1 tambor de chapa)"
+    assert texto_pallets(1, 40, "Bidones") == "1 pallet de 1 bidón"
+    assert [singular(u) for u in ("Bolsas", "Cisternas", "Contenedores IBC", "Unidades", "Envases", "kg")] == [
+        "Bolsa", "Cisterna", "Contenedor IBC", "Unidad", "Envase", "kg"]
     assert texto_pallets(10, None, "Bolsas") == ""
     assert texto_pallets(0, 40, "Bolsas") == ""
     assert cantidad_pallets(80, 48) == 2 and cantidad_pallets(96, 48) == 2 and cantidad_pallets(-80, 48) == -2

@@ -24,10 +24,21 @@ window.Remito = (function () {
     return {total: completos + (resto ? 1 : 0), completos, resto};
   }
   const palabraPallets = n => n === 1 ? 'pallet' : 'pallets';
+  // El envase en singular, para 1 unidad: 'tambores de chapa' -> 'tambor de chapa'. Igual que formato.singular.
+  function singular(unidad) {
+    const partes = String(unidad || '').split(' ');
+    for (const [fin, cambio] of [['ones', 'ón'], ['ores', 'or'], ['ades', 'ad'], ['les', 'l'], ['nes', 'n'], ['res', 'r'], ['s', '']]) {
+      if (partes[0].toLowerCase().endsWith(fin) && partes[0].length > fin.length + 1) {
+        partes[0] = partes[0].slice(0, -fin.length) + cambio;
+        break;
+      }
+    }
+    return partes.join(' ');
+  }
   // El pallet incompleto: '1 completo + 1 de 32 bolsas', o 'de 32 bolsas' si es el único.
   function detallePallets(c, unidad) {
     if (!c || !c.resto) return '';
-    const u = unidad ? ' ' + unidad.toLowerCase() : '';
+    const u = unidad ? ' ' + (c.resto === 1 ? singular(unidad) : unidad).toLowerCase() : '';
     if (!c.completos) return 'de ' + fmt(c.resto) + u;
     return c.completos + (c.completos === 1 ? ' completo' : ' completos') + ' + 1 de ' + fmt(c.resto) + u;
   }

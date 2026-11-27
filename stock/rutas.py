@@ -32,7 +32,7 @@ from . import pallets as pl
 from . import remitos as rm
 from . import vacios
 from .excel import armar_excel
-from .formato import cantidad_pallets, formato_numero
+from .formato import cantidad_pallets, formato_numero, singular
 from .historial import libro_por_lote
 from .servicios import (
     CAMPOS_TRANSPORTE,
@@ -428,7 +428,8 @@ def producto_form(producto_id=None):
                         "Stock inicial, cargado con el producto", rm.lineas_de_ingreso(items, vencimientos),
                     )
                     total = sum(items.values())
-                    mensaje += (f" Stock inicial: {formato_numero(total)} {datos['unidad'].lower()} en "
+                    unidad = singular(datos["unidad"]) if total == 1 else datos["unidad"]
+                    mensaje += (f" Stock inicial: {formato_numero(total)} {unidad.lower()} en "
                                 f"{len(items)} {'lote' if len(items) == 1 else 'lotes'} "
                                 f"(remito {REMITO_STOCK_INICIAL}).")
                 db.commit()
