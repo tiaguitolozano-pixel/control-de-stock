@@ -165,13 +165,13 @@ def chequear(empresa_id, modo, renglones):
         hay = s.get((empresa_id, eid, estado), 0)
         if cantidad > hay + EPS:
             nombre = nombres[eid]
-            ayuda = ("Si el cliente mandó vacíos que no están cargados, cargalos primero con un ingreso "
-                     "(en + Ingreso, apartado Envases vacíos del cliente)" if estado == "VACIO"
-                     else "Si el número no está al día")
+            conteo = "con un conteo en Trasvasos → Envases vacíos y sucios"
+            ayuda = (f"Si el cliente mandó vacíos que no están cargados, cargalos primero con un ingreso "
+                     f"(en + Ingreso, apartado Envases vacíos del cliente), o corregí el número {conteo}."
+                     if estado == "VACIO" else f"Si el número no está al día, corregilo {conteo}.")
             errores.append(
                 f"{nombre} {palabras(nombre, estado)[1]}: esta empresa tiene {_n(hay)} en el depósito y querés "
-                f"{'usar' if modo == 'TRASVASO' else 'sacar'} {_n(cantidad)}. {ayuda}, o corregilo con un conteo "
-                "en Trasvasos → Envases vacíos y sucios."
+                f"{'usar' if modo == 'TRASVASO' else 'sacar'} {_n(cantidad)}. {ayuda}"
             )
     return errores
 

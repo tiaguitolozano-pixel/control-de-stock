@@ -334,6 +334,9 @@ def test_los_vacios_del_cliente_entran_con_un_ingreso_y_vuelven_con_un_egreso(ap
     r = movimiento(client, "egreso", [], remito="D-1", **{f"env_{tambores}_VACIO": "30"})
     assert r.status_code == 200
     assert "Tambores de chapa vacíos: esta empresa tiene 20 en el depósito y querés sacar 30" in texto(r)
+    r = movimiento(client, "egreso", [], remito="D-1", **{f"env_{tambores}_SUCIO": "5"})
+    assert ("Tambores de chapa sucios: esta empresa tiene 0 en el depósito y querés sacar 5. "
+            "Si el número no está al día, corregilo con un conteo en Trasvasos → Envases vacíos y sucios.") in texto(r)
     r = movimiento(client, "egreso", [], remito="D-1", **{f"env_{tambores}_VACIO": "20"})
     assert r.status_code == 302
     assert saldo(app, "Tambores de chapa", "VACIO") == 0
