@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Control de stock{% endblock %} · Control de stock</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='estilo.css') }}">
+</head>
+<body>
+  {% set seccion = request.endpoint or '' %}
+  <header>
+    <div class="barra">
+      <a class="marca" href="{{ url_for('stock.inicio') }}">📦 Control de stock</a>
+      <nav>
+        <a href="{{ url_for('stock.inicio') }}" class="{{ 'activo' if seccion == 'stock.inicio' }}">Stock</a>
+        <a href="{{ url_for('stock.movimiento_nuevo', tipo='ingreso') }}" class="{{ 'activo' if request.view_args and request.view_args.get('tipo','').upper() == 'INGRESO' }}">+ Ingreso</a>
+        <a href="{{ url_for('stock.movimiento_nuevo', tipo='egreso') }}" class="{{ 'activo' if request.view_args and request.view_args.get('tipo','').upper() == 'EGRESO' }}">− Egreso</a>
+        <a href="{{ url_for('trasvasos.trasvasos') }}" class="{{ 'activo' if seccion.startswith('trasvasos.') }}">⇄ Trasvasos</a>
+        <a href="{{ url_for('stock.lotes') }}" class="{{ 'activo' if seccion == 'stock.lotes' }}">Lotes y vencimientos</a>
+        <a href="{{ url_for('deposito.pallets_lista') }}" class="{{ 'activo' if seccion.startswith('deposito.pallet') }}">Pallets</a>
+        <a href="{{ url_for('deposito.deposito') }}" class="{{ 'activo' if seccion in ('deposito.deposito', 'deposito.ubicacion') }}">Depósito</a>
+        <a href="{{ url_for('stock.movimientos') }}" class="{{ 'activo' if seccion in ('stock.movimientos', 'stock.movimiento_detalle') }}">Movimientos</a>
+        <a href="{{ url_for('stock.productos') }}" class="{{ 'activo' if seccion.startswith('stock.producto') }}">Productos</a>
+        <a href="{{ url_for('stock.empresas') }}" class="{{ 'activo' if seccion.startswith('stock.empresa') }}">Empresas</a>
+        <a href="{{ url_for('stock.importar') }}" class="{{ 'activo' if seccion.startswith('stock.importar') }}">Importar Excel</a>
+        <a href="{{ url_for('deposito.terminal') }}">📱 Terminal</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    {% with mensajes = get_flashed_messages(with_categories=true) %}
+      {% if mensajes %}
+        <ul class="mensajes">
+          {% for cat, msg in mensajes %}<li class="{{ cat }}">{{ msg }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+    {% block contenido %}{% endblock %}
+  </main>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

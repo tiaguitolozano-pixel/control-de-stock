@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block titulo %}Pallet {{ p.codigo }}{% endblock %}
+{% block contenido %}
+<h1>Pallet {{ p.codigo }}</h1>
+<div class="acciones">
+  <a class="boton" target="_blank" href="{{ url_for('deposito.etiquetas_pallets', ids=p.id) }}">🖨 Imprimir etiqueta</a>
+  <a class="boton secundario" href="{{ url_for('deposito.pallets_lista') }}">← Todos los pallets</a>
+</div>
+<div class="tarjeta ficha-qr">
+  <div class="qr-chico">{{ qr_svg(p.codigo) }}</div>
+  <dl class="datos grilla2" style="flex:1; margin:0">
+    <div><dt>Empresa</dt><dd>{{ p.empresa }}</dd></div>
+    <div><dt>Ubicación</dt><dd>{% if p.ubicacion %}<a href="{{ url_for('deposito.ubicacion', ubicacion_id=p.ubicacion_id) }}">{{ nombre_ubicacion(p) }}</a>{% else %}Sin ubicar{% endif %}</dd></div>
+    <div><dt>Armado</dt><dd>{{ p.creado_en|fecha }}{% if p.remito %} · <a href="{{ url_for('stock.movimiento_detalle', movimiento_id=p.movimiento_id) }}">remito {{ p.remito }}</a>{% endif %}</dd></div>
+  </dl>
+</div>
+
+<h2>Contenido</h2>
+<div class="tabla">
+<table>
+  <thead><tr><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Cantidad</th><th>Envase</th><th>Equivale a</th></tr></thead>
+  <tbody>
+  {% for l in p.lineas %}
+    <tr><td><a href="{{ url_for('stock.producto_ficha', producto_id=l.producto_id) }}">{{ l.codigo }}</a></td><td>{{ l.descripcion }}</td>
+        <td>{{ l.lote or '(sin lote)' }}</td><td>{{ l.vencimiento|fecha }}</td>
+        <td class="num"><strong>{{ l.cantidad|num }}</strong></td><td>{{ l.unidad }}</td>
+        <td class="pallets">{{ l.cantidad|pallets(l.unidades_por_pallet, l.unidad) }}</td></tr>
+  {% else %}
+    <tr><td colspan="7" class="vacio">El pallet está vacío: toda su mercadería ya salió o pasó a otro pallet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<div class="grilla-acciones no-imprimir">
+  <form method="post" action="{{ url_for('deposito.pallet_accion', pallet_id=p.id, accion='ubicar') }}" class="tarjeta">
+    <h3>Cambiar de ubicación</h3>
+    <div class="campo"><label>Estiba</label>
+      <select name="ubicacion_id">
+        <option value="">Sin ubicación</option>
+        {% for u in ubicaciones %}<option value="{{ u.id }}" {{ 'selected' if u.id == p.ubicacion_id }}>Galpón {{ u.galpon }} · {{ corto_ubicacion(u) }}</option>{% endfor %}
+      </select></div>
+    <button class="boton">Guardar ubicación</button>
+    <p class="ayuda">En el depósito es más rápido con la terminal: escaneás el pallet y después la estiba.</p>
+  </form>
+  {% if p.lineas %}
+  <form method="post" action="{{ url_for('deposito.pallet_accion', pallet_id=p.id, accion='juntar') }}" class="tarjeta">
+    <h3>Juntar con otro pallet</h3>
+    <p class="ayuda">Para un pallet que tiene dos lotes: escribí o escaneá el código del otro pallet. Todo lo de ese pallet pasa a este y el otro queda vacío.</p>
+    <div class="campo"><label>Código del otro pallet</label><input name="codigo" placeholder="P000123" required autocomplete="off"></div>
+    <button class="boton">Juntar en {{ p.codigo }}</button>
+  </form>
+  {% endif %}
+  {% if para_sumar %}
+  <form method="post" action="{{ url_for('deposito.pallet_accion', pallet_id=p.id, accion='sumar') }}" class="tarjeta">
+    <h3>Agregar mercadería sin etiqueta</h3>
+    <div class="campo"><label>Lote</label>
+      <select name="lote_id">{% for l in para_sumar %}<option value="{{ l.id }}">{{ l.codigo }} · {{ l.lote or '(sin lote)' }} · sin etiqueta: {{ l.sin_etiqueta|num }}</option>{% endfor %}</select></div>
+    <div class="campo"><label>Cantidad</label><input name="cantidad" inputmode="decimal" required></div>
+    <button class="boton">Agregar al pallet</button>
+  </form>
+  {% endif %}
+  {% if p.lineas %}
+  <form method="post" action="{{ url_for('deposito.pallet_accion', pallet_id=p.id, accion='sacar') }}" class="tarjeta">
+    <h3>Sacar del pallet sin despachar</h3>
+    <p class="ayuda">Para corregir o desarmar el pallet: la mercadería sigue en el depósito, sin etiqueta. Para despachar, cargá un egreso.</p>
+    <div class="campo"><label>Lote</label>
+      <select name="lote_id">{% for l in p.lineas %}<option value="{{ l.lote_id }}">{{ l.codigo }} · {{ l.lote or '(sin lote)' }} · hay {{ l.cantidad|num }}</option>{% endfor %}</select></div>
+    <div class="campo"><label>Cantidad</label><input name="cantidad" inputmode="decimal" required></div>
+    <button class="boton secundario">Sacar del pallet</button>
+  </form>
+  {% endif %}
+</div>
+
+<h2>Historial del pallet</h2>
+<div class="tabla">
+<table>
+  <thead><tr><th>Cuándo</th><th>Qué pasó</th><th>Código</th><th>Lote</th><th class="num">Cantidad</th><th>Remito</th></tr></thead>
+  <tbody>
+  {% for m in movs %}
+    <tr class="{{ 'anulado' if m.anulado }}">
+      <td class="nowrap">{{ m.creado_en|fecha }} {{ m.creado_en[11:16] }}</td>
+      <td>{% if m.motivo == 'INGRESO' %}Entró con un ingreso{% elif m.motivo == 'EGRESO' %}Salió con un egreso{% elif m.motivo == 'ARMADO' %}Se armó con mercadería sin etiqueta{% elif m.motivo == 'JUNTADO' %}{{ 'Llegó de otro pallet' if m.cantidad > 0 else 'Pasó a otro pallet' }}{% else %}Se sacó del pallet (queda sin etiqueta){% endif %}{% if m.anulado %} (remito anulado){% endif %}</td>
+      <td>{{ m.codigo }}</td><td>{{ m.lote or '(sin lote)' }}</td>
+      <td class="num {{ 'debe' if m.cantidad > 0 else 'haber' }}">{{ m.cantidad|num }}</td>
+      <td>{% if m.movimiento_id %}<a href="{{ url_for('stock.movimiento_detalle', movimiento_id=m.movimiento_id) }}">{{ m.remito }}</a>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if lugares %}
+<h3>Dónde estuvo</h3>
+<ul>{% for l in lugares %}<li>{{ l.creado_en|fecha }} {{ l.creado_en[11:16] }}: {{ ('Galpón ' ~ l.galpon ~ ' · ' ~ corto_ubicacion(l)) if l.calle else 'sin ubicación' }}</li>{% endfor %}</ul>
+{% endif %}
+{% endblock %}

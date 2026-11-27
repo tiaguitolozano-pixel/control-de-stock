@@ -1,0 +1,13 @@
+<div class="tarjeta pallet">
+  <div class="fila-titulo"><span class="codigo">{{ p.codigo }}</span><span class="ubic">{{ p.ubicacion or 'Sin ubicar' }}</span></div>
+  <div class="empresa">{{ p.empresa }}</div>
+  {% for l in p.lineas %}
+  <div class="linea">
+    <div><strong>{{ l.codigo }}</strong> · {{ l.descripcion }}</div>
+    <div class="ayuda">Lote {{ l.lote or '(sin lote)' }}{% if l.vencimiento %} · Vence {{ l.vencimiento|fecha }}{% endif %}</div>
+    <div class="cant">{{ l.cantidad|num }} {{ l.unidad|lower }}</div>
+  </div>
+  {% else %}
+  <div class="linea ayuda">Vacío: ya salió del depósito.</div>
+  {% endfor %}
+</div>

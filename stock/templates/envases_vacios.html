@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block titulo %}Envases vacíos y sucios{% endblock %}
+{% block contenido %}
+<h1>Envases vacíos y sucios de los clientes</h1>
+<p class="ayuda">Los tambores, cisternas y demás envases de cada cliente que están en el depósito. Los vacíos que manda el cliente entran con un
+  ingreso (apartado "Envases vacíos del cliente"); cada trasvaso usa sus vacíos y le deja los sucios de lo que se vació; con un egreso se le
+  devuelven. Acá se ve cuántos tiene cada empresa y se anota lo demás: lavados, descartes y conteos.</p>
+
+<form class="tarjeta filtros" method="get">
+  <div class="campo"><label for="filtro-empresa">Empresa</label>
+    <select name="empresa_id" id="filtro-empresa"><option value="">Todas</option>
+      {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+    </select></div>
+  <button class="boton">Ver</button>
+  {% if empresa_id %}<a href="{{ url_for('trasvasos.envases_vacios') }}">Ver todas</a>{% endif %}
+</form>
+
+<div class="tabla">
+<table>
+  <thead><tr>{% if not empresa_id %}<th>Empresa</th>{% endif %}<th>Tipo de envase</th><th class="num">Vacíos</th><th class="num">Sucios</th></tr></thead>
+  <tbody>
+  {% for r in resumen %}
+    <tr>{% if not empresa_id %}<td><a href="{{ url_for('trasvasos.envases_vacios', empresa_id=r.empresa_id) }}">{{ r.empresa }}</a></td>{% endif %}
+      <td>{{ r.nombre }}</td>
+      <td class="num"><strong class="{{ 'haber' if r.vacios < 0 }}">{{ r.vacios|num }}</strong></td>
+      <td class="num"><strong class="{{ 'haber' if r.sucios < 0 }}">{{ r.sucios|num }}</strong></td></tr>
+  {% else %}
+    <tr><td colspan="{{ 3 if empresa_id else 4 }}" class="vacio">
+      {% if not lleva_alguno %}Ningún tipo de envase lleva la cuenta de vacíos y sucios. Marcalos en
+        <a href="{{ url_for('stock.envases_lista') }}">Tipos de envase</a>.
+      {% else %}Todavía no hay envases de clientes en el depósito. Los vacíos que manda un cliente se cargan con un
+        <a href="{{ url_for('stock.movimiento_nuevo', tipo='ingreso', empresa_id=empresa_id) }}">ingreso</a>.{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="ayuda">¿Falta un tipo de envase? En <a href="{{ url_for('stock.envases_lista') }}">Tipos de envase</a> se elige cuáles llevan la cuenta de vacíos y sucios.</p>
+
+{% if tipos %}
+<h2>Anotar un movimiento de envases</h2>
+<form method="post" class="tarjeta filtros">
+  <div class="campo"><label for="empresa_id">Empresa</label>
+    <select name="empresa_id" id="empresa_id" required><option value="">Elegí…</option>
+      {% for e in empresas_activas %}<option value="{{ e.id }}" {{ 'selected' if e.id == empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+    </select></div>
+  <div class="campo"><label for="fecha">Fecha</label><input type="date" name="fecha" id="fecha" value="{{ hoy() }}"></div>
+  <div class="campo"><label for="envase_id">Tipo de envase</label>
+    <select name="envase_id" id="envase_id" required>
+      {% for e in tipos %}<option value="{{ e.id }}">{{ e.nombre }}</option>{% endfor %}
+    </select></div>
+  <div class="campo"><label for="accion">Qué pasó</label>
+    <select name="accion" id="accion" required>
+      {% for clave, accion in acciones.items() %}<option value="{{ clave }}">{{ accion[0] }}</option>{% endfor %}
+    </select></div>
+  <div class="campo corto"><label for="cantidad">Cantidad</label><input name="cantidad" id="cantidad" inputmode="decimal" required autocomplete="off"></div>
+  <div class="campo"><label for="observaciones">Observación</label><input name="observaciones" id="observaciones" placeholder="Opcional: quién los lavó, a quién se devolvieron…"></div>
+  <button class="boton">Anotar</button>
+</form>
+<p class="ayuda">Lo que llega o sale con remito conviene cargarlo en <a href="{{ url_for('stock.movimiento_nuevo', tipo='ingreso', empresa_id=empresa_id) }}">+ Ingreso</a>
+  o <a href="{{ url_for('stock.movimiento_nuevo', tipo='egreso', empresa_id=empresa_id) }}">− Egreso</a>, en su apartado de envases: así queda con el remito.
+  Si al contar hay otra cantidad, elegí "Conteo" y escribí cuántos hay de verdad: el programa anota la diferencia.
+  Así también se carga lo que un cliente ya tenía en el depósito antes de empezar a usar el programa.</p>
+{% endif %}
+
+<h2>Últimos movimientos</h2>
+<div class="tabla">
+<table>
+  <thead><tr><th>Fecha</th>{% if not empresa_id %}<th>Empresa</th>{% endif %}<th>Tipo de envase</th><th>Qué pasó</th>
+    <th class="num">Vacíos</th><th class="num">Sucios</th><th>Detalle</th></tr></thead>
+  <tbody>
+  {% for h in historial %}
+    <tr class="{{ 'anulado' if h.anulado }}">
+      <td class="nowrap">{{ h.fecha|fecha }}</td>
+      {% if not empresa_id %}<td>{{ h.empresa or '—' }}</td>{% endif %}
+      <td>{{ h.nombre }}</td>
+      <td>{{ motivos.get(h.motivo, h.motivo) }}</td>
+      <td class="num {{ 'debe' if h.vacios > 0 else ('haber' if h.vacios < 0) }}">{{ ('+' if h.vacios > 0) ~ (h.vacios|num) if h.vacios else '' }}</td>
+      <td class="num {{ 'debe' if h.sucios > 0 else ('haber' if h.sucios < 0) }}">{{ ('+' if h.sucios > 0) ~ (h.sucios|num) if h.sucios else '' }}</td>
+      <td class="chico">
+        {%- if h.trasvaso_id %}<a href="{{ url_for('trasvasos.trasvaso_detalle', trasvaso_id=h.trasvaso_id) }}">Trasvaso orden {{ h.orden }}</a>
+        {%- elif h.movimiento_id %}<a href="{{ url_for('stock.movimiento_detalle', movimiento_id=h.movimiento_id) }}">Remito {{ h.remito }}</a>{% endif %}
+        {%- if h.anulado %} <span class="etq anulado">anulado</span>{% endif %}
+        {{ h.observaciones or '' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="{{ 6 if empresa_id else 7 }}" class="vacio">Todavía no hay movimientos de envases.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p style="margin-top:16px"><a href="{{ url_for('trasvasos.trasvasos') }}">← Volver a trasvasos</a></p>
+{% endblock %}

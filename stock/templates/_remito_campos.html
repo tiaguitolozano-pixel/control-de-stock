@@ -1,0 +1,123 @@
+{#- Partes que comparten los formularios de ingreso, egreso y trasvaso. -#}
+
+{% macro transporte(form, previos, ayuda='') %}
+    <h3 class="subtitulo">Transporte</h3>
+    <div class="grilla2">
+      <div class="campo"><label for="chofer">Chofer (nombre y apellido)</label>
+        <input name="chofer" id="chofer" value="{{ form.chofer or '' }}" list="dl-choferes" autocomplete="off"></div>
+      <div class="campo"><label for="transporte">Empresa de transporte</label>
+        <input name="transporte" id="transporte" value="{{ form.transporte or '' }}" list="dl-transportes" autocomplete="off"></div>
+      <div class="campo"><label for="patente_camion">Patente del camión</label>
+        <input name="patente_camion" id="patente_camion" class="patente" value="{{ form.patente_camion or '' }}" list="dl-camiones" autocomplete="off" placeholder="AB123CD"></div>
+      <div class="campo"><label for="patente_semi">Patente del semi</label>
+        <input name="patente_semi" id="patente_semi" class="patente" value="{{ form.patente_semi or '' }}" list="dl-semis" autocomplete="off" placeholder="AB123CD"></div>
+      <div class="campo"><label for="contenedor">N° de contenedor</label>
+        <input name="contenedor" id="contenedor" value="{{ form.contenedor or '' }}" list="dl-contenedores" autocomplete="off" placeholder="Ej.: MSCU1234567">
+        <div class="aviso-campo" id="aviso-contenedor"></div></div>
+      <div class="campo"><label for="tipo_contenedor">Tipo de contenedor</label>
+        <input name="tipo_contenedor" id="tipo_contenedor" value="{{ form.tipo_contenedor or '' }}" list="dl-tipos-contenedor" autocomplete="off" placeholder="Ej.: 40' High Cube"></div>
+    </div>
+    <datalist id="dl-choferes">{% for c in previos.choferes %}<option value="{{ c.chofer }}">{% endfor %}</datalist>
+    <datalist id="dl-transportes">{% for t in previos.transportes %}<option value="{{ t }}">{% endfor %}</datalist>
+    <datalist id="dl-camiones">{% for t in previos.patentes_camion %}<option value="{{ t }}">{% endfor %}</datalist>
+    <datalist id="dl-semis">{% for t in previos.patentes_semi %}<option value="{{ t }}">{% endfor %}</datalist>
+    <datalist id="dl-contenedores">{% for t in previos.contenedores %}<option value="{{ t }}">{% endfor %}</datalist>
+    <datalist id="dl-tipos-contenedor">{% for t in previos.tipos_contenedor %}<option value="{{ t }}">{% endfor %}</datalist>
+    <p class="ayuda">Si el chofer ya viajó antes, al elegirlo se completan solos el transporte y las patentes de su último viaje.
+      El contenedor es opcional; si tiene el formato de siempre (4 letras y 7 números) el programa revisa que el último dígito esté bien.{{ ' ' ~ ayuda if ayuda }}</p>
+{% endmacro %}
+
+{% macro observaciones(form, ejemplos) %}
+    <h3 class="subtitulo">Observaciones</h3>
+    <div class="campo"><label for="observaciones">Observación general</label>
+      <textarea name="observaciones" id="observaciones" rows="2" placeholder="Cualquier dato del remito: estado de la mercadería, faltantes, destino…">{{ form.observaciones or '' }}</textarea></div>
+    <div class="campo" style="margin-bottom:0"><label for="fotos">Fotos (opcional)</label>
+      <input type="file" name="fotos" id="fotos" accept="image/*" multiple>
+      <div id="fotos-previa" class="fotos-previa"></div>
+      <div class="ayuda">Para acompañar la observación: {{ ejemplos }}
+        Podés sacarlas con el celular o elegirlas de la computadora; se achican solas antes de guardarse. Después se pueden agregar más desde el remito.</div>
+    </div>
+{% endmacro %}
+
+{% macro insumos_adicionales(insumos, campos_insumo, textos_insumos) %}
+  <div class="tarjeta">
+    <h2 style="margin-top:0">Insumos adicionales</h2>
+    {% if insumos %}
+    <table class="insumos">
+      {% for i in insumos %}
+      {% set cs = campos_insumo(i) %}
+      <tr>
+        <th>{{ i.nombre }}{% if i.unidad|lower != i.nombre|lower %} <span class="ayuda">({{ i.unidad }})</span>{% endif %}</th>
+        {% if i.con_propietario %}
+          <td><label>Propios</label><input name="{{ cs[0][0] }}" value="{{ textos_insumos.get(cs[0][0], '') }}" inputmode="decimal" placeholder="0" autocomplete="off"></td>
+          <td><label>Del cliente</label><input name="{{ cs[1][0] }}" value="{{ textos_insumos.get(cs[1][0], '') }}" inputmode="decimal" placeholder="0" autocomplete="off" class="insumo-cliente" data-insumo="{{ i.id }}" data-unidad="{{ i.unidad }}"></td>
+          <td class="saldo-insumo" id="saldo-insumo-{{ i.id }}"></td>
+        {% else %}
+          <td><label>Cantidad</label><input name="{{ cs[0][0] }}" value="{{ textos_insumos.get(cs[0][0], '') }}" inputmode="decimal" placeholder="0" autocomplete="off"></td>
+          <td></td><td></td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    <p class="ayuda" style="margin-bottom:0">Pallets propios: son del depósito y solo quedan anotados en el remito. Pallets del cliente: se lleva la cuenta de cuántos tiene cada empresa
+      en el depósito (suman con los ingresos y restan con los egresos), así que no pueden salir más de los que hay.
+      <a href="{{ url_for('stock.insumos_lista') }}">Ver los saldos o agregar otros insumos</a></p>
+  </div>
+{% endmacro %}
+
+{% macro tabla_productos(id_cuerpo, modo, prefijo='') %}
+    <div class="tabla-renglones">
+    <table class="renglones">
+      <thead><tr>
+        <th style="width:30%">Producto</th>
+        {% if modo == 'INGRESO' %}<th style="width:13%">Lote</th><th style="width:150px">Vencimiento</th>{% else %}<th style="width:26%">Lote (primero el que vence antes)</th>{% endif %}
+        <th style="width:130px">Cantidad *</th>
+        <th style="width:210px">Pallets</th>
+        <th style="width:110px" class="num">Kilos</th><th></th>
+      </tr></thead>
+      <tbody id="{{ id_cuerpo }}"></tbody>
+      <tfoot><tr class="total">
+        <td colspan="{{ 3 if modo == 'INGRESO' else 2 }}">Totales</td>
+        <td id="{{ prefijo }}total-cantidades"></td><td id="{{ prefijo }}total-pallets"></td>
+        <td id="{{ prefijo }}total-kilos" class="num"></td><td></td>
+      </tr></tfoot>
+    </table>
+    </div>
+{% endmacro %}
+
+{#- Los envases vacíos y sucios del cliente. modo: INGRESO (entran los vacíos que manda el cliente),
+    EGRESO (se le devuelven vacíos o sucios) o TRASVASO (se usan vacíos y le quedan sucios).
+    columnas: [(estado, texto, signo)], ver vacios.COLUMNAS. El saldo de la empresa lo completa remito.js. -#}
+{% macro envases_cliente(envases, campo_envase, textos_envases, columnas, modo) %}
+  <div class="tarjeta" id="tarjeta-envases">
+    <h2 style="margin-top:0">{{ {'INGRESO': 'Envases vacíos del cliente', 'EGRESO': 'Envases que se devuelven al cliente',
+                                 'TRASVASO': 'Envases vacíos y sucios del cliente'}[modo] }}</h2>
+    {% if envases %}
+    <table class="insumos">
+      {% for e in envases %}
+      <tr>
+        <th>{{ e.nombre }}</th>
+        {% for estado, texto, signo in columnas %}
+        {% set nombre = campo_envase(e.id, estado) %}
+        <td><label for="{{ nombre }}">{{ texto }}</label><input name="{{ nombre }}" id="{{ nombre }}" value="{{ textos_envases.get(nombre, '') }}"
+              inputmode="decimal" placeholder="0" autocomplete="off" class="envase" data-envase="{{ e.id }}" data-estado="{{ estado }}"
+              data-signo="{{ signo }}" data-nombre="{{ e.nombre|lower }}"></td>
+        {% endfor %}
+        <td class="saldo-insumo" id="saldo-envase-{{ e.id }}"></td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="ayuda" style="margin-bottom:0">
+    {%- if modo == 'INGRESO' %}Los tambores, cisternas y demás envases vacíos que manda el cliente para los trasvasos. Se lleva la cuenta de cuántos tiene
+      cada empresa en el depósito: los trasvasos usan sus vacíos y le dejan los sucios. Se puede cargar un remito solo con envases.
+    {%- elif modo == 'EGRESO' %}Los vacíos que sobraron o los sucios que se lleva el cliente. No pueden salir más de los que la empresa tiene en el depósito.
+    {%- else %}Se completan solos: los vacíos con lo que se envasa y los sucios con lo que se vacía del depósito; si no fue así, cambialos.
+      Se usan los vacíos que esta empresa tiene en el depósito (los que mandó, cargados con un ingreso) y no pueden quedar en negativo.{% endif %}
+      <a href="{{ url_for('trasvasos.envases_vacios') }}">Ver los saldos de cada cliente</a></p>
+    {% else %}
+    <p class="ayuda" style="margin:0">Ningún tipo de envase lleva la cuenta de vacíos y sucios. Marcalos en
+      <a href="{{ url_for('stock.envases_lista') }}">Tipos de envase</a> (por ejemplo, tambores y cisternas).</p>
+    {% endif %}
+  </div>
+{% endmacro %}

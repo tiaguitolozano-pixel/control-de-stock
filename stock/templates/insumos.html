@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block titulo %}Insumos{% endblock %}
+{% block contenido %}
+<h1>Insumos adicionales</h1>
+<p class="ayuda">Son las cosas que se anotan abajo de cada ingreso o egreso, además de la mercadería: pallets, film stretch, etc.</p>
+
+<h2>Pallets de los clientes en el depósito</h2>
+<div class="tabla">
+<table>
+  <thead><tr><th>Empresa</th><th>Insumo</th><th class="num">Hay en el depósito</th><th>Último movimiento</th><th></th></tr></thead>
+  <tbody>
+  {% for s in saldos %}
+    <tr class="{{ 'bajo' if s.saldo < 0 }}">
+      <td>{{ s.empresa }}</td>
+      <td>{{ s.insumo }} del cliente</td>
+      <td class="num"><strong>{{ s.saldo|num }}</strong> {{ s.unidad }}</td>
+      <td>{{ s.ultimo|fecha }}</td>
+      <td class="num"><a href="{{ url_for('stock.movimientos', empresa_id=s.empresa_id) }}#insumos">Ver movimientos</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="vacio">Todavía no se cargaron pallets de clientes.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="ayuda">Los pallets del cliente suman cuando entran con un ingreso y restan cuando salen con un egreso. Si una empresa ya tenía pallets en el depósito
+  antes de empezar a usar el programa, cargá un ingreso de esa empresa solo con los pallets del cliente (por ejemplo, remito "Saldo inicial").
+  Para devolver pallets vacíos, cargá un egreso solo con los pallets.</p>
+
+<h2>Lista de insumos</h2>
+<form method="post" class="tarjeta filtros">
+  <div class="campo"><label>Agregar un insumo nuevo</label><input name="nombre" placeholder="Ej.: Esquineros" required></div>
+  <div class="campo corto"><label>Se cuenta en</label><input name="unidad" placeholder="unidades"></div>
+  <label class="check"><input type="checkbox" name="con_propietario" value="1"> Puede ser propio o del cliente (los del cliente llevan saldo, como los pallets)</label>
+  <button class="boton">+ Agregar</button>
+</form>
+<div class="tabla">
+<table>
+  <thead><tr><th>Nombre y unidad</th><th>Propio o del cliente</th><th class="num">Remitos que lo usan</th><th></th></tr></thead>
+  <tbody>
+  {% for i in insumos %}
+    <tr class="{{ '' if i.activo else 'inactiva' }}">
+      <td>
+        <form method="post" action="{{ url_for('stock.insumo_editar', insumo_id=i.id) }}" class="en-linea">
+          <input name="nombre" value="{{ i.nombre }}" aria-label="Nombre">
+          <input name="unidad" value="{{ i.unidad }}" aria-label="Unidad" style="width:110px">
+          <button class="boton chico secundario">Guardar</button>
+        </form>
+      </td>
+      <td>{{ 'Sí: los del cliente llevan saldo' if i.con_propietario else 'No' }}</td>
+      <td class="num">{{ i.usos }}</td>
+      <td class="num">
+        {% if not i.activo %}<span class="etq inactivo">desactivado</span>{% endif %}
+        <form method="post" action="{{ url_for('stock.insumo_editar', insumo_id=i.id) }}" class="en-linea">
+          <input type="hidden" name="accion" value="activar">
+          <button class="boton chico secundario">{{ 'Desactivar' if i.activo else 'Activar' }}</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="ayuda">Los insumos desactivados dejan de aparecer al cargar remitos; los remitos viejos que los usaron no cambian.</p>
+{% endblock %}

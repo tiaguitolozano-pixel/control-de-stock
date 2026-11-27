@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block titulo %}Borrar trasvaso {{ t.orden }}{% endblock %}
+{% block contenido %}
+<h1>Borrar trasvaso · Orden {{ t.orden }}</h1>
+{% if problema %}
+<div class="tarjeta aviso-amarillo"><strong>No se puede borrar.</strong> {{ problema }}</div>
+{% else %}
+<div class="tarjeta aviso-amarillo">
+  <strong>¿Seguro que querés borrar este trasvaso?</strong> Es para los que se cargaron por error. Se borran también sus remitos:
+  lo envasado sale del stock, lo que se vació vuelve al stock, y los envases vacíos y sucios vuelven a como estaban.
+  Lo que tenía queda anotado en <a href="{{ url_for('stock.movimientos_cambios') }}">Cambios y borrados</a>, por si hay que volver a cargarlo.
+  {% if armados %}<br>También se borran los pallets que armó ({{ armados|map(attribute='codigo')|join(', ') }}): si tienen la etiqueta pegada, sacala.{% endif %}
+  {% if fotos %}<br>Las fotos ({{ fotos|length }}) se guardan aparte, en la carpeta datos/fotos/borradas.{% endif %}
+</div>
+{% endif %}
+<div class="tarjeta">
+  <ul class="lineas-cambio">{% for l in texto %}<li>{{ l }}</li>{% endfor %}</ul>
+</div>
+<form method="post" class="acciones" style="margin-top:16px">
+  {% if not problema %}<button class="boton rojo">🗑 Sí, borrar el trasvaso</button>{% endif %}
+  <a class="boton secundario" href="{{ url_for('trasvasos.trasvaso_detalle', trasvaso_id=t.id) }}">{{ 'Volver' if problema else 'No, volver' }}</a>
+  {% if problema and not t.anulado %}<a class="boton secundario" href="{{ url_for('trasvasos.trasvaso_editar', trasvaso_id=t.id) }}">✎ Editar el trasvaso</a>{% endif %}
+</form>
+{% endblock %}

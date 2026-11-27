@@ -1,0 +1,204 @@
+:root {
+  --azul: #1f4e79; --azul-claro: #e8f0f8; --verde: #1e7b45; --verde-claro: #e3f4ea;
+  --rojo: #b3261e; --rojo-claro: #fbe9e7; --amarillo-claro: #fff6d6;
+  --gris: #5f6b76; --borde: #d6dde4; --fondo: #f4f6f8; --texto: #1d2329;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Segoe UI", Roboto, Arial, sans-serif; font-size: 15px;
+       background: var(--fondo); color: var(--texto); }
+a { color: var(--azul); }
+header { background: var(--azul); color: #fff; }
+header .barra { max-width: 1200px; margin: 0 auto; display: flex; align-items: center;
+                gap: 24px; padding: 0 16px; flex-wrap: wrap; }
+header .marca { font-weight: 700; font-size: 18px; padding: 14px 0; color: #fff; text-decoration: none; }
+header nav { display: flex; gap: 0; flex-wrap: wrap; }
+header nav a { color: #dce8f3; text-decoration: none; padding: 16px 8px; border-bottom: 3px solid transparent; }
+header nav a:hover, header nav a.activo { color: #fff; border-bottom-color: #fff; }
+main { max-width: 1200px; margin: 0 auto; padding: 20px 16px 60px; }
+h1 { font-size: 24px; margin: 4px 0 16px; }
+h2 { font-size: 18px; margin: 24px 0 10px; }
+.tarjeta { background: #fff; border: 1px solid var(--borde); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.resumen { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.resumen .valor small { font-size: 16px; font-weight: 600; }
+.resumen .tarjeta { margin: 0; }
+.resumen .valor { font-size: 28px; font-weight: 700; }
+.resumen .etiqueta { color: var(--gris); }
+.acciones { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.boton { display: inline-block; border: 1px solid var(--azul); background: var(--azul); color: #fff;
+         padding: 8px 14px; border-radius: 6px; text-decoration: none; cursor: pointer; font-size: 15px; font-family: inherit; }
+.boton:hover { filter: brightness(1.1); }
+.boton.secundario { background: #fff; color: var(--azul); }
+.boton.verde { background: var(--verde); border-color: var(--verde); }
+.boton.rojo { background: var(--rojo); border-color: var(--rojo); }
+.boton.chico { padding: 4px 10px; font-size: 13px; }
+form.filtros { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+label { display: block; font-size: 13px; color: var(--gris); margin-bottom: 4px; }
+input, select, textarea { font: inherit; padding: 7px 9px; border: 1px solid var(--borde); border-radius: 6px;
+                          background: #fff; width: 100%; }
+input:focus, select:focus, textarea:focus { outline: 2px solid #9cc1e4; border-color: var(--azul); }
+.campo { margin-bottom: 12px; }
+.filtros .campo { margin: 0; min-width: 150px; }
+.check { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--texto); }
+.check input { width: auto; }
+.grilla2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 16px; }
+table { width: 100%; border-collapse: collapse; background: #fff; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--borde); text-align: left; vertical-align: middle; }
+th { background: var(--azul-claro); font-weight: 600; font-size: 13px; position: sticky; top: 0; }
+td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+tr:hover td { background: #fafcfe; }
+.tabla { overflow-x: auto; border: 1px solid var(--borde); border-radius: 8px; }
+.tabla table { border: 0; }
+.vacio { color: var(--gris); text-align: center; padding: 24px; }
+.etq { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.etq.INGRESO { background: var(--verde-claro); color: var(--verde); }
+.etq.EGRESO { background: var(--rojo-claro); color: var(--rojo); }
+.etq.anulado { background: #eceff1; color: var(--gris); }
+.etq.inactivo { background: #eceff1; color: var(--gris); }
+tr.bajo td { background: var(--amarillo-claro); }
+tr.anulado td { color: #9aa4ad; text-decoration: line-through; }
+.mensajes { list-style: none; padding: 0; margin: 0 0 16px; }
+.mensajes li { padding: 10px 14px; border-radius: 6px; margin-bottom: 6px; }
+.mensajes .ok { background: var(--verde-claro); color: var(--verde); }
+.mensajes .error { background: var(--rojo-claro); color: var(--rojo); }
+.ayuda { color: var(--gris); font-size: 13px; }
+.renglones td { padding: 6px; }
+.renglones .stock-actual { color: var(--gris); font-size: 13px; white-space: nowrap; }
+.datos dt { color: var(--gris); font-size: 13px; }
+.datos dd { margin: 0 0 10px; font-weight: 600; }
+@media print { header, .acciones, form.filtros, .no-imprimir { display: none !important; } main { padding: 0; } }
+a.tarjeta.enlace { text-decoration: none; color: inherit; display: block; }
+a.tarjeta.enlace:hover { border-color: var(--azul); }
+.valor.alerta { color: var(--rojo); }
+td.vencido { color: var(--rojo); font-weight: 600; }
+td.por-vencer { color: #8a6100; font-weight: 600; }
+tr.fila-vencida td { background: var(--rojo-claro); }
+.errores { background: var(--rojo-claro); color: var(--rojo); padding: 12px 16px 12px 32px; border-radius: 6px; }
+.errores li { margin: 2px 0; }
+/* --- segunda ronda --- */
+.subtitulo { font-size: 15px; margin: 18px 0 10px; color: var(--azul); border-top: 1px solid var(--borde); padding-top: 14px; }
+textarea { resize: vertical; }
+input.patente { text-transform: uppercase; }
+.campo.corto { min-width: 120px; max-width: 160px; }
+td.pallets { color: var(--gris); font-size: 13px; min-width: 110px; }
+tr.sublote td { background: #f8fafc; font-size: 13px; color: #3c4650; border-bottom-style: dashed; }
+tr.sublote td:nth-child(2) { padding-left: 24px; }
+tr.con-lotes td { border-bottom-color: #eef1f4; }
+th.debe, td.debe, strong.debe { color: var(--verde); }
+th.haber, td.haber, strong.haber { color: var(--rojo); }
+td.debe, td.haber { font-weight: 600; }
+tfoot tr.total td { background: var(--azul-claro); font-weight: 700; border-top: 2px solid var(--azul); }
+.totales { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.totales .tarjeta { margin: 0; padding: 12px 16px; }
+.totales .etiqueta { font-weight: 700; margin-bottom: 6px; }
+.fila-total { display: flex; justify-content: space-between; padding: 2px 0; font-variant-numeric: tabular-nums; }
+.fila-total.diferencia { border-top: 1px solid var(--borde); margin-top: 4px; padding-top: 6px; }
+td.chico { font-size: 13px; color: var(--gris); }
+.conv { font-size: 12px; color: var(--gris); margin-top: 3px; min-height: 14px; }
+.tabla-renglones { overflow-x: auto; }
+.renglones { min-width: 980px; }
+.renglones input:disabled { background: #f1f3f5; }
+form.en-linea { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
+form.en-linea input { width: 240px; }
+tr.inactiva td { color: var(--gris); }
+.observacion { white-space: pre-wrap; margin: 0; }
+td.nowrap, a.nowrap { white-space: nowrap; }
+/* --- depósito y pallets --- */
+.mensajes .aviso { background: var(--amarillo-claro); color: #6b4e00; }
+a.tarjeta.aviso-tarjeta { background: var(--amarillo-claro); border-color: #e2c45a; }
+.aviso-listo { background: var(--verde-claro); border-color: #9fd3b3; }
+.tarjeta.aviso-amarillo { background: var(--amarillo-claro); border-color: #e2c45a; }
+.lista-negativos { margin: 8px 0 0; padding-left: 20px; }
+.lista-negativos li { margin: 4px 0; }
+td.saldo.negativo { color: var(--rojo); }
+tr.aviso-negativo td { background: var(--amarillo-claro); color: #6b4e00; font-size: 14px; }
+.etq.cambio { background: #e8eefc; color: #2a4a8a; }
+ul.lineas-cambio { margin: 6px 0 0; padding-left: 18px; }
+ul.lineas-cambio li { margin: 2px 0; }
+a.editar { text-decoration: none; margin-left: 6px; color: var(--gris, #666); }
+a.editar:hover { color: inherit; }
+.calle { background: #fff; border: 1px solid var(--borde); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.calle-nombre { display: flex; gap: 12px; align-items: baseline; margin-bottom: 8px; }
+.estibas { display: flex; flex-wrap: wrap; gap: 6px; }
+.estiba { width: 52px; height: 52px; border: 1px solid var(--borde); border-radius: 6px; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; text-decoration: none; color: var(--texto); background: #f8fafc; }
+.estiba .nro { font-size: 12px; color: var(--gris); }
+.estiba .cant { font-size: 18px; font-weight: 700; }
+.estiba.ocupada { background: var(--azul-claro); border-color: #8fb3d6; }
+.estiba.ocupada .cant { color: var(--azul); }
+.estiba.inactiva { opacity: .45; border-style: dashed; }
+.estiba:hover { border-color: var(--azul); }
+.ficha-qr { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.qr-chico svg { width: 110px; height: 110px; display: block; }
+.codigo-grande { font-size: 30px; font-weight: 800; }
+.grilla-acciones { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 16px; }
+.grilla-acciones .tarjeta { margin: 0; }
+.grilla-acciones h3 { margin: 0 0 8px; font-size: 16px; }
+/* --- kilos, insumos, fotos e historial por lote --- */
+.info-prod { font-size: 12px; color: var(--gris); margin-top: 3px; }
+.renglones tfoot td { background: var(--azul-claro); font-weight: 700; border-top: 2px solid var(--azul); vertical-align: top; }
+.renglones tfoot .ayuda { font-weight: 400; }
+.kilos-renglon { white-space: nowrap; }
+.aviso-campo { font-size: 13px; color: #8a6100; margin-top: 4px; }
+.aviso-campo:empty { display: none; }
+table.insumos { width: auto; background: none; }
+table.insumos th, table.insumos td { border: 0; padding: 4px 16px 8px 0; vertical-align: bottom; background: none; position: static; }
+table.insumos th { font-size: 15px; font-weight: 600; min-width: 170px; }
+table.insumos td input { width: 110px; }
+table.insumos tr:hover td { background: none; }
+.saldo-insumo { font-size: 13px; color: var(--gris); max-width: 320px; }
+.saldo-insumo.negativo { color: var(--rojo); font-weight: 600; }
+table.stock-inicial td { padding: 6px; vertical-align: top; }
+table.stock-inicial td input { min-width: 120px; }
+table.stock-inicial tfoot td { background: var(--azul-claro); font-weight: 700; border-top: 2px solid var(--azul); }
+details > summary { cursor: pointer; }
+@media (max-width: 640px) {
+  /* En el celular cada lote del stock inicial va en su propio bloque, con el nombre de cada casillero arriba. */
+  table.stock-inicial thead { display: none; }
+  table.stock-inicial, table.stock-inicial tbody, table.stock-inicial tfoot { display: block; }
+  table.stock-inicial tr { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; padding: 10px; border-bottom: 1px solid var(--borde); }
+  table.stock-inicial td, table.stock-inicial tfoot td { padding: 0; border: 0; background: none; }
+  table.stock-inicial td:empty { display: none; }
+  table.stock-inicial td[data-etiqueta]::before { content: attr(data-etiqueta); display: block; font-size: 13px;
+                                                  color: var(--gris); margin-bottom: 4px; }
+  table.stock-inicial td input { min-width: 0; }
+  table.stock-inicial tbody td:last-child { padding-top: 22px; }
+  table.stock-inicial tfoot tr { background: var(--azul-claro); border-top: 2px solid var(--azul); border-bottom: 0; }
+}
+@media (max-width: 640px) {
+  /* En el celular cada insumo o envase va en su propio bloque: nombre arriba, casilleros abajo y el saldo debajo. */
+  table.insumos, table.insumos tbody, table.insumos tr { display: block; }
+  table.insumos tr { padding: 6px 0; border-bottom: 1px solid var(--borde); }
+  table.insumos tr:last-child { border-bottom: 0; }
+  table.insumos th { display: block; min-width: 0; padding: 0 0 4px; }
+  table.insumos td { display: inline-block; padding: 0 12px 4px 0; vertical-align: top; }
+  table.insumos td:empty { display: none; }
+  table.insumos td.saldo-insumo { display: block; max-width: none; padding: 2px 0 0; }
+}
+.fotos-previa { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.fotos-previa img { height: 72px; border-radius: 6px; border: 1px solid var(--borde); }
+.fotos { display: flex; flex-wrap: wrap; gap: 12px; }
+.fotos figure { margin: 0; text-align: center; }
+.fotos img { width: 180px; height: 135px; object-fit: cover; border-radius: 6px; border: 1px solid var(--borde); display: block; }
+.fotos figcaption { margin-top: 6px; }
+section.libro { margin-bottom: 18px; }
+.libro-titulo { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; align-items: baseline;
+                background: #fff; border: 1px solid var(--borde); border-bottom: 0; border-radius: 8px 8px 0 0; padding: 10px 12px; }
+.libro-titulo + .tabla { border-radius: 0 0 8px 8px; }
+.cantidad-general { font-size: 14px; }
+tr.lote-titulo td { background: #f1f5f9; font-weight: 700; color: var(--azul); border-top: 2px solid var(--borde); }
+tr.saldo-anterior td { color: var(--gris); font-style: italic; }
+tr.lote-total td { font-weight: 700; border-bottom: 2px solid var(--borde); background: #fafcfe; }
+td.saldo { font-weight: 700; }
+@media print {
+  section.libro { break-inside: avoid-page; }
+  .fotos img { width: 140px; height: 105px; }
+}
+/* --- trasvasos --- */
+.opciones-origen { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-bottom: 14px; }
+.opciones-origen .check { align-items: baseline; font-size: 15px; }
+.comparacion { margin: 10px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.comparacion:empty { display: none; }
+.etq.trasvaso { background: #ede7f6; color: #5e35b1; text-decoration: none; }
+.lista-corta { margin: 0; padding: 0; list-style: none; }
+.lista-corta li { white-space: nowrap; }
+td.chico .lista-corta li { white-space: normal; }

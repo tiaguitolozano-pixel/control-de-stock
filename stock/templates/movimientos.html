@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block titulo %}Movimientos{% endblock %}
+{% block contenido %}
+<h1>Historial de movimientos</h1>
+<div class="acciones">
+  <a class="boton verde" href="{{ url_for('stock.movimiento_nuevo', tipo='ingreso') }}">+ Cargar ingreso</a>
+  <a class="boton rojo" href="{{ url_for('stock.movimiento_nuevo', tipo='egreso') }}">− Cargar egreso</a>
+  <a class="boton secundario" href="{{ url_for('stock.movimientos_excel', **request.args) }}">⬇ Exportar a Excel</a>
+  <button class="boton secundario" onclick="window.print()">🖨 Imprimir</button>
+  <a class="boton secundario" href="{{ url_for('stock.movimientos_cambios') }}">Cambios y borrados</a>
+</div>
+<p class="ayuda no-imprimir">Para corregir un remito, tocá ✎ al lado de su número (o abrilo y usá ✎ Editar o 🗑 Borrar).</p>
+<div class="tarjeta">
+  <form class="filtros" method="get">
+    <div class="campo"><label>Empresa</label>
+      <select name="empresa_id">
+        <option value="">Todas</option>
+        {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == filtros.empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="campo"><label>Tipo</label>
+      <select name="tipo"><option value="">Ingresos y egresos</option>
+        {% for k, v in tipos.items() %}<option value="{{ k }}" {{ 'selected' if k == filtros.tipo }}>Solo {{ v|lower }}s</option>{% endfor %}
+      </select>
+    </div>
+    <div class="campo"><label>Desde</label><input type="date" name="desde" value="{{ filtros.desde }}"></div>
+    <div class="campo"><label>Hasta</label><input type="date" name="hasta" value="{{ filtros.hasta }}"></div>
+    <div class="campo"><label>Remito</label><input name="remito" value="{{ filtros.remito }}"></div>
+    <div class="campo"><label>Producto</label><input name="producto" value="{{ filtros.producto }}" placeholder="Código, descripción o lote"></div>
+    <div class="campo"><label>Transporte</label><input name="transporte" value="{{ filtros.transporte }}" placeholder="Chofer, patente o contenedor"></div>
+    <label class="check"><input type="checkbox" name="ver_anulados" value="1" {{ 'checked' if filtros.ver_anulados }}> Ver anulados</label>
+    <button class="boton">Filtrar</button>
+    <a href="{{ url_for('stock.movimientos') }}">Limpiar</a>
+  </form>
+</div>
+
+{% from "_libro.html" import libro_por_lote with context %}
+{% if totales %}
+<h2>Cantidad general</h2>
+<div class="totales">
+  {% for t in totales %}
+  <div class="tarjeta">
+    <div class="etiqueta">Total {{ t.unidad }}</div>
+    <div class="fila-total"><span>Ingresos (debe)</span><strong class="debe">{{ t.ingresos|num }}</strong></div>
+    <div class="fila-total"><span>Egresos (haber)</span><strong class="haber">{{ t.egresos|num }}</strong></div>
+    <div class="fila-total diferencia"><span>Diferencia</span><strong>{{ t.diferencia|num }}</strong></div>
+  </div>
+  {% endfor %}
+  {% if kilos.ingresos or kilos.egresos %}
+  <div class="tarjeta">
+    <div class="etiqueta">Kilos (todos los envases)</div>
+    <div class="fila-total"><span>Ingresos (debe)</span><strong class="debe">{{ kilos.ingresos|num }} kg</strong></div>
+    <div class="fila-total"><span>Egresos (haber)</span><strong class="haber">{{ kilos.egresos|num }} kg</strong></div>
+    <div class="fila-total diferencia"><span>Diferencia</span><strong>{{ kilos.diferencia|num }} kg</strong></div>
+    {% if kilos.sin_kilos %}<div class="ayuda">No cuenta {{ kilos.sin_kilos }} producto{{ 's' if kilos.sin_kilos != 1 }} sin kilos por unidad cargados.</div>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<h2>Movimientos por producto y lote <span class="ayuda">(de arriba hacia abajo: primero lo más viejo)</span></h2>
+{% if libro %}
+  {{ libro_por_lote(libro, filtros.desde, filtros.hasta) }}
+{% else %}
+  <div class="tarjeta vacio">No hay movimientos de productos con estos filtros.</div>
+{% endif %}
+<p class="ayuda">Cada producto muestra su cantidad general y, debajo, los movimientos de cada lote con el saldo que le quedó al lote después de cada remito.
+  Ingresos (debe) es lo que entró al depósito y egresos (haber) lo que salió. Los totales no cuentan los remitos anulados.</p>
+{% if cantidad_renglones >= limite %}<p class="ayuda">Se muestran los últimos {{ limite|num }} renglones (los totales de arriba sí cuentan todo). Usá los filtros para acotar.</p>{% endif %}
+
+{% if insumos %}
+<h2 id="insumos">{{ 'Insumos adicionales y envases del cliente' if hay_envases else 'Insumos adicionales' }}</h2>
+<div class="totales">
+  {% for t in totales_insumos %}
+  <div class="tarjeta">
+    <div class="etiqueta">{{ t.nombre }}{% if t.unidad %} ({{ t.unidad }}){% endif %}</div>
+    <div class="fila-total"><span>En ingresos</span><strong class="debe">{{ t.entran|num }}</strong></div>
+    <div class="fila-total"><span>En egresos</span><strong class="haber">{{ t.salen|num }}</strong></div>
+  </div>
+  {% endfor %}
+</div>
+<div class="tabla">
+<table>
+  <thead><tr><th>Fecha</th><th>Remito</th><th>Empresa</th><th>{{ 'Insumo o envase' if hay_envases else 'Insumo' }}</th><th class="num debe">En ingresos</th><th class="num haber">En egresos</th><th>Unidad</th></tr></thead>
+  <tbody>
+  {% for r in insumos %}
+    <tr class="{{ 'anulado' if r.anulado }}">
+      <td class="nowrap">{{ r.fecha|fecha }}</td>
+      <td class="nowrap"><a href="{{ url_for('stock.movimiento_detalle', movimiento_id=r.id) }}">{{ r.remito }}</a>{% if r.anulado %} <span class="etq anulado">anulado</span>{% endif %}</td>
+      <td>{{ r.empresa }}</td>
+      <td>{{ nombre_insumo(r) }}</td>
+      <td class="num debe">{{ r.cantidad|num if r.tipo == 'INGRESO' else '' }}</td>
+      <td class="num haber">{{ r.cantidad|num if r.tipo == 'EGRESO' else '' }}</td>
+      <td>{{ r.unidad }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="ayuda">Los pallets del cliente llevan saldo: el de cada empresa está en <a href="{{ url_for('stock.insumos_lista') }}">Insumos</a>.
+  {%- if hay_envases %} Los envases vacíos y sucios de cada cliente, en <a href="{{ url_for('trasvasos.envases_vacios', empresa_id=filtros.empresa_id) }}">Envases vacíos y sucios</a>.{% endif %}</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block titulo %}Lotes y vencimientos{% endblock %}
+{% block contenido %}
+<h1>Stock por lote y vencimiento</h1>
+<div class="acciones">
+  <a class="boton secundario" href="{{ url_for('stock.lotes_excel', **request.args) }}">⬇ Exportar a Excel</a>
+  <button class="boton secundario" onclick="window.print()">🖨 Imprimir</button>
+</div>
+<div class="tarjeta">
+  <form class="filtros" method="get">
+    <div class="campo"><label>Empresa</label>
+      <select name="empresa_id" onchange="this.form.submit()">
+        <option value="">Todas</option>
+        {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == filtros.empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="campo"><label>Buscar</label><input name="buscar" value="{{ filtros.buscar }}" placeholder="Código, descripción o lote"></div>
+    <div class="campo"><label>Vencimiento</label>
+      <select name="vence" onchange="this.form.submit()">
+        <option value="">Todos</option>
+        <option value="vencidos" {{ 'selected' if filtros.vence == 'vencidos' }}>Solo vencidos</option>
+        <option value="por_vencer" {{ 'selected' if filtros.vence == 'por_vencer' }}>Vencidos y que vencen en {{ dias_aviso }} días</option>
+      </select>
+    </div>
+    <button class="boton">Filtrar</button>
+    <a href="{{ url_for('stock.lotes') }}">Limpiar</a>
+  </form>
+</div>
+<div class="tabla">
+<table>
+  <thead><tr><th>Empresa</th><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Cantidad</th><th>Envase</th><th class="num">Kilos</th><th>Equivale a</th><th>Dónde está</th></tr></thead>
+  <tbody>
+  {% for r in filas %}
+    {% set v = r.vencimiento %}
+    <tr class="{{ 'fila-vencida' if v and v < hoy_iso else ('bajo' if v and v <= limite_aviso) }}">
+      <td>{{ r.empresa }}</td>
+      <td class="nowrap"><a href="{{ url_for('stock.producto_ficha', producto_id=r.producto_id) }}">{{ r.codigo }}</a></td>
+      <td>{{ r.descripcion }}</td>
+      <td class="nowrap">{{ r.lote or '(sin lote)' }}</td>
+      <td>{{ v|fecha }}{% if v and v < hoy_iso %} <span class="etq EGRESO">vencido</span>{% endif %}</td>
+      <td class="num"><strong>{{ r.stock|num }}</strong></td>
+      <td>{{ r.unidad }}</td>
+      <td class="num">{{ r.stock|kilos(r.kilos_por_unidad) }}</td>
+      <td class="pallets">{{ r.stock|pallets(r.unidades_por_pallet, r.unidad) }}</td>
+      {% set d = donde.get(r.id) %}
+      <td class="chico">
+        {% if d and d.ubicaciones %}<a href="{{ url_for('deposito.pallets_lista', buscar=r.lote or r.codigo, empresa_id=r.empresa_id) }}">{{ d.ubicaciones|join(', ') }}</a>{% endif %}
+        {% if d and d.sin_ubicar %}<div>{{ d.sin_ubicar }} pallet{{ 's' if d.sin_ubicar != 1 }} sin ubicar</div>{% endif %}
+        {% if d and d.sin_etiqueta > 0.000001 %}<div>Sin etiqueta: {{ d.sin_etiqueta|num }}</div>{% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="10" class="vacio">No hay lotes con stock para estos filtros.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="ayuda">Ordenado por vencimiento: primero lo que vence antes. En rojo los vencidos, en amarillo los que vencen en los próximos {{ dias_aviso }} días.</p>
+{% endblock %}

@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% import "_detalle_partes.html" as partes %}
+{% block titulo %}Trasvaso {{ t.orden }}{% endblock %}
+{% block contenido %}
+<h1>Trasvaso · Orden {{ t.orden }}
+  {% if t.anulado %}<span class="etq anulado">ANULADO</span>{% endif %}</h1>
+<div class="acciones no-imprimir">
+  {% if not t.anulado %}<a class="boton" href="{{ url_for('trasvasos.trasvaso_editar', trasvaso_id=t.id) }}">✎ Editar</a>{% endif %}
+  <a class="boton secundario" href="{{ url_for('trasvasos.trasvaso_borrar', trasvaso_id=t.id) }}">🗑 Borrar</a>
+</div>
+<div class="tarjeta">
+  <dl class="datos grilla2">
+    <div><dt>Empresa</dt><dd>{{ t.empresa }}</dd></div>
+    <div><dt>Fecha</dt><dd>{{ t.fecha|fecha }}</dd></div>
+    <div><dt>N° de orden</dt><dd>{{ t.orden }}</dd></div>
+    <div><dt>N° de remito</dt><dd>{{ t.remito or '—' }}</dd></div>
+    <div><dt>Origen</dt><dd>{{ origenes[t.origen] }}</dd></div>
+    <div><dt>Cargado el</dt><dd>{{ t.creado_en|fecha }} {{ t.creado_en[11:16] }}</dd></div>
+    {% if t.anulado %}<div><dt>Motivo de anulación</dt><dd>{{ t.motivo_anulacion }}</dd></div>{% endif %}
+  </dl>
+  {#- Un trasvaso dentro del depósito no tiene transporte: el bloque solo aparece si se anotó algo. -#}
+  {% if ingreso and (ingreso.chofer or ingreso.transporte or ingreso.patente_camion or ingreso.patente_semi
+                     or ingreso.contenedor or ingreso.tipo_contenedor) %}{{ partes.datos_transporte(ingreso) }}{% endif %}
+  <h3 class="subtitulo">Observación general</h3>
+  <p class="observacion">{{ t.observaciones or '—' }}</p>
+  {% if ingreso %}{{ partes.fotos_remito(fotos, ingreso.id, url_for('trasvasos.trasvaso_detalle', trasvaso_id=t.id) ~ '#fotos') }}{% endif %}
+</div>
+
+<h2>Origen: {{ 'salió del depósito' if t.origen == 'DEPOSITO' else 'llegó de afuera' }}</h2>
+{% if t.origen == 'DEPOSITO' %}
+  {% if sale %}{{ partes.tabla_items(sale, totales_sale) }}{% endif %}
+  {% if egreso %}<p class="ayuda">Salió del stock con el egreso <a href="{{ url_for('stock.movimiento_detalle', movimiento_id=egreso.id) }}">{{ egreso.remito }}</a>.</p>{% endif %}
+{% else %}
+  <div class="tarjeta">
+    {% if ingreso and ingreso.contenedor %}{{ ingreso.tipo_contenedor ~ ' · ' if ingreso.tipo_contenedor }}N° {{ ingreso.contenedor }}{% else %}Sin número de contenedor.{% endif %}
+    · Kilos que llegaron: <strong>{{ (t.kilos_origen|num ~ ' kg') if t.kilos_origen is not none else 'no se anotaron' }}</strong>
+  </div>
+{% endif %}
+
+<h2>Destino: quedó envasado</h2>
+{% if entra %}{{ partes.tabla_items(entra, totales_entra) }}{% endif %}
+{% if diferencia is not none %}
+<p class="comparacion">Origen: <strong>{{ kilos_origen|num }} kg</strong> · Envasado: <strong>{{ kilos_destino|num }} kg</strong> ·
+  Diferencia: <strong class="{{ 'haber' if diferencia < 0 else ('debe' if diferencia > 0) }}">{{ '+' if diferencia > 0 }}{{ diferencia|num }} kg</strong>
+  ({{ '+' if diferencia > 0 }}{{ (diferencia / kilos_origen * 100)|round(1)|num }} %)</p>
+{% endif %}
+{% if ingreso %}<p class="ayuda">Entró al stock con el ingreso <a href="{{ url_for('stock.movimiento_detalle', movimiento_id=ingreso.id) }}">{{ ingreso.remito }}</a>.</p>{% endif %}
+
+{% if envases %}
+{{ partes.tabla_envases(envases, 'Envases vacíos y sucios del cliente', 'Vacíos que se usaron', 'Sucios que quedaron') }}
+{% else %}
+<h2>Envases vacíos y sucios del cliente</h2>
+<div class="tarjeta ayuda">No se anotaron envases vacíos ni sucios.</div>
+{% endif %}
+
+{% if insumos %}{{ partes.tabla_insumos(insumos, nombre_insumo) }}{% endif %}
+{% if armados %}{{ partes.tabla_armados(armados, 'Pallets armados con lo envasado') }}{% endif %}
+
+<div class="acciones" style="margin-top:16px">
+  {% if armados and ingreso %}<a class="boton verde" href="{{ url_for('deposito.etiquetas_pallets', movimiento_id=ingreso.id) }}" target="_blank">🖨 Imprimir etiquetas de los pallets</a>{% endif %}
+  {% if ingreso and not armados and not t.anulado %}<a class="boton secundario" href="{{ url_for('deposito.pallets_armar', empresa_id=t.empresa_id) }}">Armar pallets con etiqueta</a>{% endif %}
+  <button class="boton secundario" onclick="window.print()">🖨 Imprimir</button>
+  <a class="boton secundario" href="{{ url_for('trasvasos.trasvaso_nuevo', empresa_id=t.empresa_id) }}">Cargar otro trasvaso</a>
+  <a class="boton secundario" href="{{ url_for('trasvasos.trasvasos') }}">Volver a trasvasos</a>
+</div>
+{% if cambios %}
+<h2 id="cambios">Cambios de este trasvaso</h2>
+{% from "_cambios.html" import lista_cambios %}{{ lista_cambios(cambios, con_remito=False) }}
+{% endif %}
+{% if not t.anulado %}
+<details class="tarjeta no-imprimir">
+  <summary>Anular este trasvaso (si existió pero se canceló)</summary>
+  <form method="post" action="{{ url_for('trasvasos.trasvaso_anular', trasvaso_id=t.id) }}" style="margin-top:12px">
+    <p class="ayuda">No se borra: queda marcado como anulado, junto con sus remitos. Lo envasado sale del stock, lo que se vació vuelve,
+      y los envases vacíos y sucios vuelven a como estaban. Si fue un error de carga, mejor corregilo con <strong>✎ Editar</strong>
+      o sacalo con <strong>🗑 Borrar</strong>.</p>
+    <div class="campo"><label>Motivo *</label><input name="motivo" required placeholder="Ej.: cantidad mal cargada"></div>
+    <button class="boton rojo">Anular trasvaso</button>
+  </form>
+</details>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='fotos.js') }}"></script>
+<script>if (document.getElementById('fotos-agregar')) prepararFotos(document.getElementById('fotos-agregar'), document.getElementById('form-fotos'));</script>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block titulo %}Empresas{% endblock %}
+{% block contenido %}
+<h1>Empresas clientes</h1>
+<div class="acciones"><a class="boton" href="{{ url_for('stock.empresa_form') }}">+ Nueva empresa</a></div>
+<div class="tabla">
+<table>
+  <thead><tr><th>Nombre</th><th>CUIT</th><th>Contacto</th><th>Teléfono</th><th class="num">Productos</th><th></th></tr></thead>
+  <tbody>
+  {% for e in empresas %}
+    <tr>
+      <td><strong>{{ e.nombre }}</strong> {% if not e.activa %}<span class="etq inactivo">inactiva</span>{% endif %}</td>
+      <td>{{ e.cuit or '' }}</td><td>{{ e.contacto or '' }}</td><td>{{ e.telefono or '' }}</td>
+      <td class="num"><a href="{{ url_for('stock.productos', empresa_id=e.id) }}">{{ e.productos }}</a></td>
+      <td class="num">
+        <a class="boton chico secundario" href="{{ url_for('stock.inicio', empresa_id=e.id) }}">Ver stock</a>
+        <a class="boton chico secundario" href="{{ url_for('stock.empresa_form', empresa_id=e.id) }}">Editar</a>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" class="vacio">Todavía no cargaste ninguna empresa.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

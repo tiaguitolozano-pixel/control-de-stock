@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1f4e79">
+  <title>{% block titulo %}Terminal{% endblock %} · Control de stock</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='terminal.css') }}">
+</head>
+<body class="terminal">
+  <header>
+    <a class="menu-volver" href="{{ url_for('deposito.terminal') }}">☰ Menú</a>
+    <span class="titulo">{% block encabezado %}Terminal{% endblock %}</span>
+  </header>
+  <main>
+    {% with mensajes = get_flashed_messages(with_categories=true) %}
+      {% if mensajes %}
+        <ul class="mensajes">{% for cat, msg in mensajes %}<li class="{{ cat }}">{{ msg }}</li>{% endfor %}</ul>
+      {% endif %}
+    {% endwith %}
+    {% block contenido %}{% endblock %}
+  </main>
+  <script>
+    // El lector de códigos "escribe" el código y aprieta Enter en el campo que tiene el foco.
+    // El teclado de la pantalla queda escondido hasta que se toque el botón ⌨.
+    (function () {
+      var campo = document.getElementById('codigo');
+      if (!campo) return;
+      try { if (localStorage.getItem('teclado') === 'si') campo.setAttribute('inputmode', 'text'); } catch (e) {}
+      campo.focus();
+      document.addEventListener('click', function (ev) {
+        var t = ev.target;
+        if (!t.closest('input, select, textarea, button, a, summary, label')) campo.focus();
+      });
+    })();
+    function teclado() {
+      var campo = document.getElementById('codigo');
+      var mostrar = campo.getAttribute('inputmode') === 'none';
+      campo.setAttribute('inputmode', mostrar ? 'text' : 'none');
+      try { localStorage.setItem('teclado', mostrar ? 'si' : 'no'); } catch (e) {}
+      campo.blur();
+      setTimeout(function () { campo.focus(); }, 60);
+    }
+  </script>
+</body>
+</html>

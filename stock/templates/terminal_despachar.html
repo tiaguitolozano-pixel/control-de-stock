@@ -1,0 +1,91 @@
+{% extends "terminal_base.html" %}
+{% from "_terminal_macros.html" import escaner %}
+{% block encabezado %}Despachar{% endblock %}
+{% block contenido %}
+<form method="post">
+  {{ escaner('Pallet que sale') }}
+  {% set ids = lineas|map(attribute='pallet_id')|unique|list %}
+  {% if not lineas %}
+    <p class="paso">Escaneá los pallets que salen. Si de un pallet sale solo una parte, después cambiás la cantidad.</p>
+  {% endif %}
+  {% for pid in ids %}
+    {% set del_pallet = lineas|selectattr('pallet_id', 'equalto', pid)|list %}
+    {% set pa = del_pallet[0].pallet %}
+    <div class="tarjeta pallet">
+      <div class="fila-titulo">
+        <span class="codigo">{{ pa.codigo if pa else '?' }}</span>
+        <button class="quitar" name="accion" value="quitar:{{ pid }}">Quitar</button>
+      </div>
+      <div class="empresa">{{ pa.empresa if pa }} · {{ (pa.ubicacion if pa else '') or 'sin ubicar' }}</div>
+      {% for l in del_pallet %}
+      <div class="linea">
+        <input type="hidden" name="l_pallet" value="{{ l.pallet_id }}">
+        <input type="hidden" name="l_producto" value="{{ l.producto_id }}">
+        <input type="hidden" name="l_lote" value="{{ l.lote_id }}">
+        {% if l.actual %}
+          <div><strong>{{ l.actual.codigo }}</strong> · {{ l.actual.descripcion }}</div>
+          <div class="ayuda">Lote {{ l.actual.lote or '(sin lote)' }} · en el pallet hay {{ l.actual.cantidad|num }} {{ l.actual.unidad|lower }}</div>
+          <label>Sale ({{ l.actual.unidad|lower }}):</label>
+          <input class="cantidad" name="l_cant" inputmode="decimal" autocomplete="off" value="{{ l.cant_texto if l.cant_texto else l.cantidad|num }}">
+        {% else %}
+          <div class="error">Esta mercadería ya no está en el pallet.</div>
+          <input type="hidden" name="l_cant" value="0">
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  {% endfor %}
+  {% if lineas %}
+  <div class="tarjeta">
+    <div class="resumen-despacho"><strong>{{ ids|length }} pallet{{ 's' if ids|length != 1 }}</strong>{% if lineas[0].pallet %} de {{ lineas[0].pallet.empresa }}{% endif %}</div>
+    <label>N° de remito *</label><input name="remito" value="{{ form.remito }}" autocomplete="off">
+    <label>Fecha</label><input type="date" name="fecha" value="{{ form.fecha }}">
+    <details {{ 'open' if form.chofer or form.transporte or form.patente_camion or form.patente_semi or form.contenedor or form.tipo_contenedor }}>
+      <summary>Transporte (opcional)</summary>
+      <label>Chofer</label><input name="chofer" list="dl-choferes" value="{{ form.chofer }}" autocomplete="off">
+      <label>Empresa de transporte</label><input name="transporte" list="dl-transportes" value="{{ form.transporte }}" autocomplete="off">
+      <label>Patente camión</label><input name="patente_camion" list="dl-camiones" value="{{ form.patente_camion }}" class="patente" autocomplete="off">
+      <label>Patente semi</label><input name="patente_semi" list="dl-semis" value="{{ form.patente_semi }}" class="patente" autocomplete="off">
+      <label>N° de contenedor</label><input name="contenedor" list="dl-contenedores" value="{{ form.contenedor }}" autocomplete="off">
+      <label>Tipo de contenedor</label><input name="tipo_contenedor" list="dl-tipos-contenedor" value="{{ form.tipo_contenedor }}" autocomplete="off">
+    </details>
+    {% if insumos %}
+    <details {{ 'open' if textos_insumos.values()|select|list }}>
+      <summary>Insumos adicionales (opcional)</summary>
+      {% for i in insumos %}
+        {% for campo, propietario in campos_insumo(i) %}
+          <label>{{ i.nombre }}{% if propietario == 'PROPIO' %} propios{% elif propietario == 'CLIENTE' %} del cliente{% if saldos_cliente %} (hay {{ (saldos_cliente.get(i.id) or 0)|num }}){% endif %}{% endif %}{% if i.unidad|lower != i.nombre|lower %} · {{ i.unidad }}{% endif %}</label>
+          <input name="{{ campo }}" value="{{ textos_insumos.get(campo, '') }}" inputmode="decimal" autocomplete="off" class="cantidad">
+        {% endfor %}
+      {% endfor %}
+    </details>
+    {% endif %}
+    <label>Observación</label><textarea name="observaciones" rows="2">{{ form.observaciones }}</textarea>
+    <button class="boton rojo" name="accion" value="confirmar">Confirmar egreso</button>
+  </div>
+  <datalist id="dl-choferes">{% for c in previos.choferes %}<option value="{{ c.chofer }}">{% endfor %}</datalist>
+  <datalist id="dl-transportes">{% for t in previos.transportes %}<option value="{{ t }}">{% endfor %}</datalist>
+  <datalist id="dl-camiones">{% for t in previos.patentes_camion %}<option value="{{ t }}">{% endfor %}</datalist>
+  <datalist id="dl-semis">{% for t in previos.patentes_semi %}<option value="{{ t }}">{% endfor %}</datalist>
+  <datalist id="dl-contenedores">{% for t in previos.contenedores %}<option value="{{ t }}">{% endfor %}</datalist>
+  <datalist id="dl-tipos-contenedor">{% for t in previos.tipos_contenedor %}<option value="{{ t }}">{% endfor %}</datalist>
+  {% endif %}
+</form>
+<script>
+  // El lector escribe donde está el foco. Si se escanea con el foco en una cantidad,
+  // el código pasa solo al campo de escaneo y la cantidad queda como estaba.
+  document.querySelectorAll('input.cantidad').forEach(function (inp) {
+    inp.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); document.getElementById('codigo').focus(); }
+    });
+    inp.addEventListener('input', function () {
+      var i = inp.value.search(/[A-Za-z]/);
+      if (i < 0) return;
+      var campo = document.getElementById('codigo');
+      campo.value = inp.value.slice(i);
+      inp.value = inp.value.slice(0, i);
+      campo.focus();
+    });
+  });
+</script>
+{% endblock %}

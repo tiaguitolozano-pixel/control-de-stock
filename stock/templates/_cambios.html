@@ -1,0 +1,26 @@
+{#- La lista de cambios anotados (remitos corregidos o borrados). con_remito: mostrar de qué remito es cada uno. -#}
+{% macro lista_cambios(cambios, con_remito=True) %}
+<div class="tabla">
+<table class="cambios">
+  <thead><tr><th>Cuándo</th>{% if con_remito %}<th>Remito</th><th>Empresa</th>{% endif %}<th>Qué pasó</th></tr></thead>
+  <tbody>
+  {% for c in cambios %}
+    <tr>
+      <td class="nowrap">{{ c.creado_en|fecha }} {{ c.creado_en[11:16] }}</td>
+      {% if con_remito %}
+      <td class="nowrap">
+        {% if c.trasvaso_id and c.existe_trasvaso %}<a href="{{ url_for('trasvasos.trasvaso_detalle', trasvaso_id=c.trasvaso_id) }}">{{ c.remito or 'Trasvaso' }}</a>
+        {% elif c.movimiento_id and c.existe_remito %}<a href="{{ url_for('stock.movimiento_detalle', movimiento_id=c.movimiento_id) }}">{{ c.remito }}</a>
+        {% else %}{{ c.remito or '—' }}{% endif %}
+        <div class="ayuda">{{ {'INGRESO': 'Ingreso', 'EGRESO': 'Egreso', 'TRASVASO': 'Trasvaso'}.get(c.tipo, '') }}{{ ' del ' ~ (c.fecha|fecha) if c.fecha }}</div>
+      </td>
+      <td>{{ c.empresa or '' }}</td>
+      {% endif %}
+      <td><span class="etq {{ 'EGRESO' if c.accion == 'BORRADO' else 'cambio' }}">{{ 'Borrado' if c.accion == 'BORRADO' else 'Corregido' }}</span>
+        <ul class="lineas-cambio">{% for l in c.lineas %}<li>{{ l }}</li>{% endfor %}</ul></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endmacro %}

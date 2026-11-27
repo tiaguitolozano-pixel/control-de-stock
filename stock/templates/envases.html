@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block titulo %}Tipos de envase{% endblock %}
+{% block contenido %}
+<h1>Tipos de envase</h1>
+<p class="ayuda">Esta es la lista que aparece al cargar un producto. Si cambiás un nombre, se cambia también en todos los productos que lo usan.
+  Los que desactives dejan de aparecer para productos nuevos, pero los productos que ya los usan no cambian.
+  En "Vacíos y sucios" se elige de qué envases se lleva la cuenta de los vacíos y sucios que cada cliente tiene en el depósito
+  para los <a href="{{ url_for('trasvasos.trasvasos') }}">trasvasos</a> (por ejemplo, tambores y cisternas): esos aparecen en el ingreso,
+  el egreso y el trasvaso.</p>
+<form method="post" class="tarjeta filtros">
+  <div class="campo"><label>Agregar un tipo nuevo</label><input name="nombre" placeholder="Ej.: Contenedores IBC" required></div>
+  <button class="boton">+ Agregar</button>
+</form>
+<div class="tabla">
+<table>
+  <thead><tr><th>Nombre</th><th class="num">Productos que lo usan</th><th>Vacíos y sucios (trasvasos)</th><th></th></tr></thead>
+  <tbody>
+  {% for v in envases %}
+    <tr class="{{ '' if v.activo else 'inactiva' }}">
+      <td>
+        <form method="post" action="{{ url_for('stock.envase_editar', envase_id=v.id) }}" class="en-linea">
+          <input name="nombre" value="{{ v.nombre }}" aria-label="Nombre">
+          <button class="boton chico secundario">Guardar nombre</button>
+        </form>
+      </td>
+      <td class="num">{{ v.productos }}</td>
+      <td>
+        <form method="post" action="{{ url_for('stock.envase_editar', envase_id=v.id) }}" class="en-linea">
+          <input type="hidden" name="accion" value="vacios">
+          {{ 'Lleva la cuenta' if v.lleva_vacios else 'No' }}
+          <button class="boton chico secundario">{{ 'Dejar de llevarla' if v.lleva_vacios else 'Llevar la cuenta' }}</button>
+        </form>
+      </td>
+      <td class="num">
+        {% if not v.activo %}<span class="etq inactivo">desactivado</span>{% endif %}
+        <form method="post" action="{{ url_for('stock.envase_editar', envase_id=v.id) }}" class="en-linea">
+          <input type="hidden" name="accion" value="activar">
+          <button class="boton chico secundario">{{ 'Desactivar' if v.activo else 'Activar' }}</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p style="margin-top:16px"><a href="{{ url_for('stock.productos') }}">← Volver a productos</a></p>
+{% endblock %}

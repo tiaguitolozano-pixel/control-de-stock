@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% import "_detalle_partes.html" as partes %}
+{% block titulo %}Borrar remito {{ m.remito }}{% endblock %}
+{% block contenido %}
+<h1>Borrar {{ tipos[m.tipo]|lower }} · Remito {{ m.remito }}</h1>
+{% if problema %}
+<div class="tarjeta aviso-amarillo"><strong>No se puede borrar.</strong> {{ problema }}</div>
+{% else %}
+<div class="tarjeta aviso-amarillo">
+  <strong>¿Seguro que querés borrar este remito?</strong> Es para los remitos que se cargaron por error (repetidos, de otra empresa…).
+  Deja de existir y el stock se recalcula{% if m.tipo == 'EGRESO' %}: la mercadería vuelve al stock y a sus pallets{% endif %}.
+  Lo que tenía queda anotado en <a href="{{ url_for('stock.movimientos_cambios') }}">Cambios y borrados</a>, por si hay que volver a cargarlo.
+  {% if m.tipo == 'INGRESO' and armados %}<br>También se borran los pallets que armó ({{ armados|map(attribute='codigo')|join(', ') }}): si tienen la etiqueta pegada, sacala.{% endif %}
+  {% if fotos %}<br>Las fotos ({{ fotos|length }}) se guardan aparte, en la carpeta datos/fotos/borradas.{% endif %}
+</div>
+{% endif %}
+<div class="tarjeta">
+  <dl class="datos grilla2">
+    <div><dt>Tipo</dt><dd><span class="etq {{ m.tipo }}">{{ tipos[m.tipo] }}</span>{% if m.anulado %} <span class="etq anulado">ANULADO</span>{% endif %}</dd></div>
+    <div><dt>Empresa</dt><dd>{{ m.empresa }}</dd></div>
+    <div><dt>Fecha</dt><dd>{{ m.fecha|fecha }}</dd></div>
+    <div><dt>N° de remito</dt><dd>{{ m.remito }}</dd></div>
+  </dl>
+</div>
+{% if items %}{{ partes.tabla_items(items, totales) }}{% endif %}
+<form method="post" class="acciones" style="margin-top:16px">
+  {% if not problema %}<button class="boton rojo">🗑 Sí, borrar el remito</button>{% endif %}
+  <a class="boton secundario" href="{{ url_for('stock.movimiento_detalle', movimiento_id=m.id) }}">{{ 'Volver' if problema else 'No, volver' }}</a>
+  {% if problema and not m.anulado %}<a class="boton secundario" href="{{ url_for('stock.movimiento_editar', movimiento_id=m.id) }}">✎ Editar el remito</a>{% endif %}
+</form>
+{% endblock %}
