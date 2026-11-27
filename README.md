@@ -31,6 +31,10 @@ Se usa desde el navegador (Chrome, Edge, Firefox) y funciona en la red de la ofi
   - No deja sacar más de lo que hay (ni del producto ni del lote).
   - Avisa si se carga dos veces el mismo remito de ingreso.
   - Los remitos mal cargados no se borran: se **anulan** con un motivo y quedan en el historial.
+- **Trasvasos**: pasar un producto de un envase a otro por orden del cliente (descargar un isotanque del puerto en
+  tambores o cisternas, pasar cisternas a tambores o al revés). Se cargan como un ingreso, con el número de orden, de
+  dónde sale el producto (de afuera o del stock del depósito), los envases vacíos que se usan y los sucios que quedan.
+  Lleva el stock de **envases vacíos y sucios** del depósito. Ver [Trasvasos](#trasvasos).
 - **Stock actual** por empresa y producto, con aviso en amarillo cuando está por debajo del mínimo
   y la fecha de vencimiento más próxima. Se puede abrir el detalle por lote debajo de cada código y buscar por lote.
 - **Stock por lote**, con los vencidos en rojo y los que vencen en los próximos 60 días en amarillo.
@@ -102,12 +106,47 @@ Cantidad) y subirla. Las columnas Envase, Por pallet, Kilos por unidad, Lote y V
 solo con esos pallets en **Insumos adicionales → Pallets del cliente** (remito "Saldo inicial"). Los saldos de cada
 empresa se ven en **Stock → Pallets de clientes en el depósito**.
 
+**Envases vacíos y sucios:** antes del primer trasvaso, cargar cuántos tambores, cisternas, etc. vacíos y sucios hay
+hoy en el depósito: en **Trasvasos → Envases vacíos y sucios**, elegir **Conteo** y escribir la cantidad de cada uno.
+
 **Opción a mano:**
 1. **Empresas → Nueva empresa**: cargar las empresas clientes.
 2. **Productos → Nuevo producto**: cargar los productos de cada empresa.
 3. **+ Ingreso**: cargar el stock inicial (por ejemplo, un remito "STOCK INICIAL" con la fecha de hoy).
 
 A partir de ahí, cargar cada ingreso y egreso con su remito.
+
+## Trasvasos
+
+En **⇄ Trasvasos → + Cargar trasvaso** se carga igual que un ingreso (empresa, fecha, transporte, observación y
+fotos, insumos adicionales), con estas diferencias:
+
+- **N° de orden** (obligatorio): la orden del cliente. El número de remito es opcional. Avisa si la orden ya se usó.
+- **Origen**: *Llega de afuera* (un isotanque del puerto, un camión) o *Ya está en el depósito* (cisternas o
+  tambores del stock de la empresa). Si llega de afuera se pueden anotar los kilos que llegan, solo para compararlos
+  con lo envasado (no entran al stock). Si ya está en el depósito, se elige producto, lote y cantidad como en un
+  egreso, y eso sale del stock.
+- **Destino**: cómo queda envasado (producto, lote, vencimiento, cantidad). Entra al stock como un ingreso y se
+  arman sus pallets con etiqueta. Si sale de un solo lote del depósito, el lote y el vencimiento se completan solos.
+  Debajo se ve la comparación de kilos: origen, envasado y diferencia.
+- **Envases vacíos y sucios**: los vacíos que se usan (se completan solos con lo envasado) y los sucios que quedan
+  (con lo que se vació del depósito). Se pueden cambiar a mano, por ejemplo si el cliente trajo sus envases.
+  No deja usar más vacíos de los que hay.
+
+Al guardar quedan dos remitos con el número "Orden …": el ingreso de lo envasado y, si salió del depósito, el
+egreso de lo que se vació. Aparecen en el historial de movimientos con la marca *trasvaso*. La lista de trasvasos
+se filtra por empresa, fechas y orden, y se exporta a Excel. Un trasvaso mal cargado se anula completo (no sus
+remitos sueltos): vuelve todo a como estaba, incluidos los envases.
+
+### Envases vacíos y sucios
+
+Son del depósito, no de los clientes. En **Trasvasos → Envases vacíos y sucios** se ve cuántos hay de cada tipo y se
+anota lo que no es un trasvaso: compras o devoluciones de vacíos, lavados (los sucios pasan a vacíos), ventas o
+descartes. Para cargar lo que ya hay hoy, o corregir después de contar, se usa **Conteo**: se escribe cuántos hay
+de verdad y el programa anota la diferencia.
+
+Qué tipos de envase llevan esta cuenta se elige en **Productos → Tipos de envase** (columna "Vacíos y sucios").
+Al actualizar a esta versión quedan marcados los tambores, cisternas, bidones y contenedores IBC.
 
 ## Pallets, etiquetas y ubicaciones
 
@@ -158,8 +197,14 @@ El teclado de la pantalla queda escondido para que no tape; con el botón ⌨ se
 - Código en `stock/`: `rutas.py` las pantallas de stock y remitos, `deposito.py` las de pallets, depósito y terminal,
   `pallets.py` la lógica de pallets y ubicaciones, `historial.py` el historial por lote con saldos, `insumos.py` los
   insumos adicionales y el saldo de pallets de los clientes, `fotos.py` las fotos de los remitos (archivos en
-  `datos/fotos`, carpeta configurable con `FOTOS`), `qr.py` los QR (en SVG, con la librería `qrcode`), `db.py` la base
-  y sus migraciones, `templates/` el HTML, `static/fotos.js` el achicado de las fotos en el navegador.
+  `datos/fotos`, carpeta configurable con `FOTOS`), `trasvasos.py` las pantallas de trasvasos, `vacios.py` el stock
+  de envases vacíos y sucios, `remitos.py` la lectura y revisión de los renglones de un remito (la usan los remitos y
+  los trasvasos), `qr.py` los QR (en SVG, con la librería `qrcode`), `db.py` la base y sus migraciones,
+  `templates/` el HTML, `static/remito.js` el formulario de remito (renglones, pallets, kilos, transporte, insumos y
+  fotos; lo usan el ingreso, el egreso y el trasvaso) y `static/fotos.js` el achicado de las fotos en el navegador.
+- Un trasvaso es una fila de `trasvasos` más uno o dos `movimientos` con `trasvaso_id` (el ingreso y, si sale del
+  depósito, el egreso). Los envases vacíos y sucios son movimientos en `envase_movs`: el saldo es la suma de los
+  que no están anulados, igual que el stock.
 - Los kilos no se guardan en los remitos: siempre se calculan con los kilos por unidad actuales del producto.
 - Lo que tiene cada pallet sale de los movimientos de la tabla `pallet_movs` (nunca se pisa un saldo), así que
   anular un egreso devuelve sola la mercadería a sus pallets.

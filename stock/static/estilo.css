@@ -11,8 +11,8 @@ header { background: var(--azul); color: #fff; }
 header .barra { max-width: 1200px; margin: 0 auto; display: flex; align-items: center;
                 gap: 24px; padding: 0 16px; flex-wrap: wrap; }
 header .marca { font-weight: 700; font-size: 18px; padding: 14px 0; color: #fff; text-decoration: none; }
-header nav { display: flex; gap: 4px; flex-wrap: wrap; }
-header nav a { color: #dce8f3; text-decoration: none; padding: 16px 12px; border-bottom: 3px solid transparent; }
+header nav { display: flex; gap: 0; flex-wrap: wrap; }
+header nav a { color: #dce8f3; text-decoration: none; padding: 16px 8px; border-bottom: 3px solid transparent; }
 header nav a:hover, header nav a.activo { color: #fff; border-bottom-color: #fff; }
 main { max-width: 1200px; margin: 0 auto; padding: 20px 16px 60px; }
 h1 { font-size: 24px; margin: 4px 0 16px; }
@@ -137,6 +137,16 @@ table.insumos td input { width: 110px; }
 table.insumos tr:hover td { background: none; }
 .saldo-insumo { font-size: 13px; color: var(--gris); max-width: 320px; }
 .saldo-insumo.negativo { color: var(--rojo); font-weight: 600; }
+@media (max-width: 640px) {
+  /* En el celular cada insumo o envase va en su propio bloque: nombre arriba, casilleros abajo y el saldo debajo. */
+  table.insumos, table.insumos tbody, table.insumos tr { display: block; }
+  table.insumos tr { padding: 6px 0; border-bottom: 1px solid var(--borde); }
+  table.insumos tr:last-child { border-bottom: 0; }
+  table.insumos th { display: block; min-width: 0; padding: 0 0 4px; }
+  table.insumos td { display: inline-block; padding: 0 12px 4px 0; vertical-align: top; }
+  table.insumos td:empty { display: none; }
+  table.insumos td.saldo-insumo { display: block; max-width: none; padding: 2px 0 0; }
+}
 .fotos-previa { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .fotos-previa img { height: 72px; border-radius: 6px; border: 1px solid var(--borde); }
 .fotos { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -156,3 +166,12 @@ td.saldo { font-weight: 700; }
   section.libro { break-inside: avoid-page; }
   .fotos img { width: 140px; height: 105px; }
 }
+/* --- trasvasos --- */
+.opciones-origen { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-bottom: 14px; }
+.opciones-origen .check { align-items: baseline; font-size: 15px; }
+.comparacion { margin: 10px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.comparacion:empty { display: none; }
+.etq.trasvaso { background: #ede7f6; color: #5e35b1; text-decoration: none; }
+.lista-corta { margin: 0; padding: 0; list-style: none; }
+.lista-corta li { white-space: nowrap; }
+td.chico .lista-corta li { white-space: normal; }

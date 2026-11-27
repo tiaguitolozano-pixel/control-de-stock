@@ -1,8 +1,13 @@
 {% extends "base.html" %}
+{% import "_detalle_partes.html" as partes %}
 {% block titulo %}Remito {{ m.remito }}{% endblock %}
 {% block contenido %}
 <h1>{{ tipos[m.tipo] }} · Remito {{ m.remito }}
   {% if m.anulado %}<span class="etq anulado">ANULADO</span>{% endif %}</h1>
+{% if trasvaso %}
+<div class="tarjeta aviso-listo">Este {{ tipos[m.tipo]|lower }} es parte del <a href="{{ url_for('trasvasos.trasvaso_detalle', trasvaso_id=trasvaso.id) }}"><strong>trasvaso de la orden {{ trasvaso.orden }}</strong></a>:
+  {{ 'lo que quedó envasado entró al stock con este remito.' if m.tipo == 'INGRESO' else 'lo que se vació salió del stock con este remito.' }}</div>
+{% endif %}
 <div class="tarjeta">
   <dl class="datos grilla2">
     <div><dt>Tipo</dt><dd><span class="etq {{ m.tipo }}">{{ tipos[m.tipo] }}</span></dd></div>
@@ -12,95 +17,21 @@
     <div><dt>Cargado el</dt><dd>{{ m.creado_en|fecha }} {{ m.creado_en[11:16] }}</dd></div>
     {% if m.anulado %}<div><dt>Motivo de anulación</dt><dd>{{ m.motivo_anulacion }}</dd></div>{% endif %}
   </dl>
-  <h3 class="subtitulo">Transporte</h3>
-  <dl class="datos grilla2">
-    <div><dt>Chofer</dt><dd>{{ m.chofer or '—' }}</dd></div>
-    <div><dt>Empresa de transporte</dt><dd>{{ m.transporte or '—' }}</dd></div>
-    <div><dt>Patente camión</dt><dd>{{ m.patente_camion or '—' }}</dd></div>
-    <div><dt>Patente semi</dt><dd>{{ m.patente_semi or '—' }}</dd></div>
-    <div><dt>N° de contenedor</dt><dd>{{ m.contenedor or '—' }}</dd></div>
-    <div><dt>Tipo de contenedor</dt><dd>{{ m.tipo_contenedor or '—' }}</dd></div>
-  </dl>
+  {{ partes.datos_transporte(m) }}
   <h3 class="subtitulo">Observación general</h3>
   <p class="observacion">{{ m.observaciones or '—' }}</p>
-  <div id="fotos">
-    {% if fotos %}
-    <div class="ayuda" style="margin:12px 0 6px">Fotos ({{ fotos|length }})</div>
-    <div class="fotos">
-      {% for f in fotos %}
-      <figure>
-        <a href="{{ url_for('stock.foto', foto_id=f.id) }}" target="_blank"><img src="{{ url_for('stock.foto', foto_id=f.id) }}" alt="{{ f.nombre_original or 'Foto' }}" loading="lazy"></a>
-        <figcaption class="no-imprimir">
-          <form method="post" action="{{ url_for('stock.foto_borrar', foto_id=f.id) }}" onsubmit="return confirm('¿Quitar esta foto?')">
-            <button class="boton chico secundario">Quitar</button>
-          </form>
-        </figcaption>
-      </figure>
-      {% endfor %}
-    </div>
-    {% endif %}
-    <form method="post" action="{{ url_for('stock.movimiento_fotos', movimiento_id=m.id) }}" enctype="multipart/form-data" class="en-linea no-imprimir" id="form-fotos" style="margin-top:12px">
-      <label for="fotos-agregar" style="margin:0">{{ 'Agregar más fotos' if fotos else 'Agregar fotos' }}:</label>
-      <input type="file" name="fotos" id="fotos-agregar" accept="image/*" multiple required style="width:auto">
-      <button class="boton secundario">Subir</button>
-    </form>
-  </div>
+  {{ partes.fotos_remito(fotos, m.id) }}
 </div>
 {% if items %}
-<div class="tabla">
-<table>
-  <thead><tr><th>Código</th><th>Descripción</th><th>Lote</th><th>Vencimiento</th><th class="num">Cantidad</th><th>Envase</th>
-    <th class="num">Kg por unidad</th><th class="num">Kilos</th><th>Equivale a</th></tr></thead>
-  <tbody>
-  {% for i in items %}
-    <tr><td><a href="{{ url_for('stock.producto_ficha', producto_id=i.producto_id) }}">{{ i.codigo }}</a></td>
-        <td>{{ i.descripcion }}</td><td>{{ i.lote or "(sin lote)" }}</td><td>{{ i.vencimiento|fecha }}</td>
-        <td class="num">{{ i.cantidad|num }}</td><td>{{ i.unidad }}</td>
-        <td class="num">{{ i.kilos_por_unidad|num if i.kilos_por_unidad else '' }}</td>
-        <td class="num">{{ (i.kilos|num ~ ' kg') if i.kilos is not none else '' }}</td>
-        <td class="pallets">{{ i.cantidad|pallets(i.unidades_por_pallet, i.unidad) }}</td></tr>
-  {% endfor %}
-  </tbody>
-  <tfoot>
-    <tr class="total"><td colspan="4">Totales</td>
-      <td class="num">{% for unidad, cantidad in totales.envases %}<div>{{ cantidad|num }}</div>{% endfor %}</td>
-      <td>{% for unidad, cantidad in totales.envases %}<div>{{ unidad }}</div>{% endfor %}</td>
-      <td></td>
-      <td class="num">{{ totales.kilos|num }} kg</td>
-      <td class="chico">{% if totales.sin_kilos %}Sin kilos cargados: {{ totales.sin_kilos|join(', ') }}{% endif %}</td></tr>
-  </tfoot>
-</table>
-</div>
+{{ partes.tabla_items(items, totales) }}
 {% else %}
 <div class="tarjeta ayuda">Este remito no tiene productos: es solo de insumos.</div>
 {% endif %}
 {% if insumos %}
-<h2>Insumos adicionales</h2>
-<div class="tabla">
-<table>
-  <thead><tr><th>Insumo</th><th class="num">Cantidad</th><th>Unidad</th></tr></thead>
-  <tbody>
-  {% for r in insumos %}
-    <tr><td>{{ nombre_insumo(r) }}</td><td class="num">{{ r.cantidad|num }}</td><td>{{ r.unidad }}</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-</div>
+{{ partes.tabla_insumos(insumos, nombre_insumo) }}
 {% endif %}
 {% if armados %}
-<h2>Pallets armados con este remito ({{ armados|length }})</h2>
-<div class="tabla">
-<table>
-  <thead><tr><th>Pallet</th><th>Contenido hoy</th><th>Ubicación</th></tr></thead>
-  <tbody>
-  {% for p in armados %}
-    <tr><td class="nowrap"><a href="{{ url_for('deposito.pallet_ficha', pallet_id=p.id) }}"><strong>{{ p.codigo }}</strong></a></td>
-        <td>{% for l in p.lineas %}<div>{{ l.codigo }} · {{ l.lote or '(sin lote)' }} · <strong>{{ l.cantidad|num }}</strong> {{ l.unidad|lower }}</div>{% else %}<span class="ayuda">Vacío (ya salió)</span>{% endfor %}</td>
-        <td>{{ p.ubicacion or '—' }}</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-</div>
+{{ partes.tabla_armados(armados, 'Pallets armados con este remito') }}
 {% elif usados %}
 <h2>Pallets de los que salió la mercadería</h2>
 <div class="tabla">
@@ -124,7 +55,9 @@
   <a class="boton secundario" href="{{ url_for('stock.movimiento_nuevo', tipo=m.tipo|lower, empresa_id=m.empresa_id) }}">Cargar otro {{ tipos[m.tipo]|lower }}</a>
   <a class="boton secundario" href="{{ url_for('stock.movimientos') }}">Volver al historial</a>
 </div>
-{% if not m.anulado %}
+{% if trasvaso and not m.anulado %}
+<p class="ayuda no-imprimir">Para anular este remito, anulá el <a href="{{ url_for('trasvasos.trasvaso_detalle', trasvaso_id=trasvaso.id) }}">trasvaso</a> completo.</p>
+{% elif not m.anulado %}
 <details class="tarjeta no-imprimir">
   <summary>Anular este remito (si se cargó mal)</summary>
   <form method="post" action="{{ url_for('stock.movimiento_anular', movimiento_id=m.id) }}" style="margin-top:12px">

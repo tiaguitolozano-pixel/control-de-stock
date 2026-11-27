@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% import "_remito_campos.html" as campos %}
+{% block titulo %}Nuevo trasvaso{% endblock %}
+{% block contenido %}
+<h1>Cargar trasvaso</h1>
+{% if not empresas %}
+  <div class="tarjeta">Primero tenés que <a href="{{ url_for('stock.empresa_form') }}">cargar una empresa</a>.</div>
+{% else %}
+<p class="ayuda">Pasar un producto de un envase a otro por orden del cliente: por ejemplo, descargar un isotanque en tambores o cisternas,
+  o pasar cisternas a tambores. Lo que queda envasado entra al stock de la empresa; si el producto ya estaba en el depósito, lo que se vacía sale del stock.</p>
+<form method="post" id="form-mov" enctype="multipart/form-data">
+  <div class="tarjeta">
+    <div class="grilla2">
+      <div class="campo"><label for="empresa">Empresa *</label>
+        <select name="empresa_id" id="empresa" required>
+          <option value="">Elegí…</option>
+          {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == form.empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="campo"><label for="fecha">Fecha *</label><input type="date" name="fecha" id="fecha" value="{{ form.fecha or hoy() }}" required></div>
+      <div class="campo"><label for="orden">N° de orden *</label><input name="orden" id="orden" value="{{ form.orden or '' }}" required placeholder="La orden del cliente"></div>
+      <div class="campo"><label for="remito">N° de remito</label><input name="remito" id="remito" value="{{ form.remito or '' }}" placeholder="Opcional"></div>
+    </div>
+    {% if mostrar_repetido %}
+      <label class="check"><input type="checkbox" name="confirmar_repetido" value="1"> Cargar igual (la orden repetida es correcta)</label>
+    {% endif %}
+
+    {{ campos.transporte(form, previos, 'Si el producto llega en un isotanque, anotá acá su número.') }}
+
+    {{ campos.observaciones(form, 'el isotanque al llegar, los envases llenos, un daño, un faltante…') }}
+  </div>
+
+  <div class="tarjeta">
+    <h2 style="margin-top:0">Origen: de dónde sale el producto</h2>
+    <div class="opciones-origen">
+      <label class="check"><input type="radio" name="origen" value="AFUERA" {{ 'checked' if form.origen != 'DEPOSITO' }}>
+        <span><strong>Llega de afuera</strong> <span class="ayuda">(un isotanque del puerto, un camión…)</span></span></label>
+      <label class="check"><input type="radio" name="origen" value="DEPOSITO" {{ 'checked' if form.origen == 'DEPOSITO' }}>
+        <span><strong>Ya está en el depósito</strong> <span class="ayuda">(cisternas o tambores del stock de la empresa)</span></span></label>
+    </div>
+    <div id="origen-afuera">
+      <div class="campo corto" style="max-width:280px"><label for="kilos_origen">Kilos que llegan</label>
+        <input name="kilos_origen" id="kilos_origen" value="{{ form.kilos_origen or '' }}" inputmode="decimal" placeholder="Opcional" autocomplete="off"></div>
+      <p class="ayuda" style="margin-bottom:0">Según el remito, el certificado o la balanza. Es opcional: sirve para comparar con los kilos que quedan envasados.
+        No entra al stock: lo que entra es lo envasado.</p>
+    </div>
+    <div id="origen-deposito">
+      {{ campos.tabla_productos('renglones-origen', 'EGRESO', 'o-') }}
+      <p class="ayuda">Lo que se vacía sale del stock de la empresa, como en un egreso. En cada lote se muestra cuánto stock hay.</p>
+      <p class="acciones" style="margin:12px 0 0"><button type="button" class="boton secundario" id="agregar-origen">+ Agregar otro producto</button></p>
+    </div>
+  </div>
+
+  <div class="tarjeta">
+    <h2 style="margin-top:0">Destino: cómo queda envasado</h2>
+    {{ campos.tabla_productos('renglones', 'INGRESO') }}
+    <div class="comparacion" id="comparacion"></div>
+    <p class="ayuda">Lo envasado entra al stock de la empresa, como en un ingreso. Si sale del depósito con un solo lote, el lote y el vencimiento se completan solos.
+      La cantidad se carga como pallets completos más unidades sueltas, o directamente el total.</p>
+    <p class="acciones" style="margin-top:12px">
+      <button type="button" class="boton secundario" id="agregar">+ Agregar otro producto</button>
+      <a href="#" id="nuevo-producto">¿No está el producto? Crealo acá</a>
+    </p>
+    <p class="ayuda" id="aviso-empresa">Elegí la empresa para ver sus productos.</p>
+  </div>
+
+  <div class="tarjeta">
+    <h2 style="margin-top:0">Envases vacíos y sucios</h2>
+    {% if envases %}
+    <table class="insumos">
+      {% for e in envases %}
+      <tr>
+        <th>{{ e.nombre }}</th>
+        <td><label>Vacíos que se usan</label><input name="{{ campo_envase(e.id, 'VACIO') }}" value="{{ textos_envases.get(campo_envase(e.id, 'VACIO'), '') }}" inputmode="decimal" placeholder="0" autocomplete="off"
+                   class="envase" data-envase="{{ e.id }}" data-estado="VACIO" data-nombre="{{ e.nombre|lower }}" data-hay="{{ e.vacios }}" aria-label="{{ e.nombre }}: vacíos que se usan"></td>
+        <td><label>Sucios que quedan</label><input name="{{ campo_envase(e.id, 'SUCIO') }}" value="{{ textos_envases.get(campo_envase(e.id, 'SUCIO'), '') }}" inputmode="decimal" placeholder="0" autocomplete="off"
+                   class="envase" data-envase="{{ e.id }}" data-estado="SUCIO" data-nombre="{{ e.nombre|lower }}" data-hay="{{ e.sucios }}" aria-label="{{ e.nombre }}: sucios que quedan"></td>
+        <td class="saldo-insumo" id="saldo-envase-{{ e.id }}"></td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="ayuda" style="margin-bottom:0">Son los envases del depósito. Se completan solos: los vacíos con lo que se envasa y los sucios con lo que se vacía del depósito;
+      si no fue así (por ejemplo, el cliente trajo sus envases), cambialos. Los vacíos no pueden quedar en negativo.
+      <a href="{{ url_for('trasvasos.envases_vacios') }}">Ver o corregir el stock de envases</a></p>
+    {% else %}
+    <p class="ayuda" style="margin:0">Ningún tipo de envase lleva la cuenta de vacíos y sucios. Marcalos en
+      <a href="{{ url_for('stock.envases_lista') }}">Tipos de envase</a> (por ejemplo, tambores y cisternas).</p>
+    {% endif %}
+  </div>
+
+  {{ campos.insumos_adicionales(insumos, campos_insumo, textos_insumos) }}
+
+  <div class="tarjeta">
+    <h2 style="margin-top:0">Opciones</h2>
+    <label class="check"><input type="checkbox" name="crear_pallets" value="1" {{ 'checked' if form.crear_pallets == '1' }}>
+      Armar los pallets de lo envasado con su etiqueta QR</label>
+    <p class="ayuda" style="margin:6px 0 0">Para cada producto con unidades por pallet se arman los pallets completos y uno más con lo que sobra.
+      Después de guardar, imprimí las etiquetas y pegalas.</p>
+  </div>
+
+  <button class="boton">Guardar trasvaso</button>
+  <a class="boton secundario" href="{{ url_for('trasvasos.trasvasos') }}">Cancelar</a>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='fotos.js') }}"></script>
+<script src="{{ url_for('static', filename='remito.js') }}"></script>
+<script>
+(function () {
+  const empresa = document.getElementById('empresa');
+  if (!empresa) return;
+  const R = window.Remito;
+  const form = document.getElementById('form-mov');
+  const aviso = document.getElementById('aviso-empresa');
+  const linkNuevo = document.getElementById('nuevo-producto');
+  const radios = document.querySelectorAll('input[name=origen]');
+  const kilosOrigen = document.getElementById('kilos_origen');
+  const comparacion = document.getElementById('comparacion');
+  const inputsEnvase = [...document.querySelectorAll('input.envase')];
+  let productos = [];
+  let saldosInsumos = {};
+  const desdeDeposito = () => document.querySelector('input[name=origen]:checked').value === 'DEPOSITO';
+
+  R.transporte({{ previos|tojson }});
+  const comunes = {productos: () => productos, hoy: '{{ hoy_iso }}', limite: '{{ limite_aviso }}', alCambiar: () => recalcular()};
+  const origen = R.tabla({...comunes, cuerpo: document.getElementById('renglones-origen'), modo: 'EGRESO', prefijo: 'o_',
+    totalCantidades: document.getElementById('o-total-cantidades'), totalKilos: document.getElementById('o-total-kilos')});
+  const destino = R.tabla({...comunes, cuerpo: document.getElementById('renglones'), modo: 'INGRESO',
+    totalCantidades: document.getElementById('total-cantidades'), totalKilos: document.getElementById('total-kilos')});
+  const actualizarSaldosInsumos = R.insumosCliente(empresa, false, () => saldosInsumos);
+
+  // Los envases que el usuario cambia a mano ya no se completan solos.
+  inputsEnvase.forEach(i => {
+    i.dataset.auto = i.value ? '0' : '1';
+    i.addEventListener('input', () => { i.dataset.auto = '0'; mostrarSaldosEnvases(); });
+  });
+
+  function cantidadesPorEnvase(lineas) {
+    const res = new Map();
+    for (const l of lineas) {
+      const clave = (l.producto.unidad || '').toLowerCase();
+      res.set(clave, (res.get(clave) || 0) + l.cantidad);
+    }
+    return res;
+  }
+
+  function mostrarSaldosEnvases() {
+    const porEnvase = {};
+    inputsEnvase.forEach(i => { (porEnvase[i.dataset.envase] = porEnvase[i.dataset.envase] || {})[i.dataset.estado] = i; });
+    for (const [id, par] of Object.entries(porEnvase)) {
+      const celda = document.getElementById('saldo-envase-' + id);
+      celda.classList.remove('negativo');
+      const partes = [];
+      for (const [estado, palabra, signo] of [['VACIO', 'Vacíos', -1], ['SUCIO', 'Sucios', 1]]) {
+        const inp = par[estado];
+        const hay = Number(inp.dataset.hay || 0);
+        const mov = R.leerNumero(inp.value);
+        let txt = palabra + ': hay ' + R.fmt(hay);
+        if (mov > 0) {
+          const queda = R.r3(hay + signo * mov);
+          txt += ' → quedan ' + R.fmt(queda);
+          if (queda < 0) celda.classList.add('negativo');
+        }
+        partes.push(txt);
+      }
+      celda.textContent = partes.join(' · ');
+    }
+  }
+
+  function recalcular() {
+    const deposito = desdeDeposito();
+    document.getElementById('origen-afuera').style.display = deposito ? 'none' : '';
+    document.getElementById('origen-deposito').style.display = deposito ? '' : 'none';
+
+    const salen = deposito ? origen.lineas() : [];
+    const entran = destino.lineas();
+
+    // Envases: vacíos = lo que se envasa; sucios = lo que se vacía del depósito.
+    const llenos = cantidadesPorEnvase(entran), vaciados = cantidadesPorEnvase(salen);
+    inputsEnvase.forEach(i => {
+      if (i.dataset.auto !== '1') return;
+      const q = (i.dataset.estado === 'VACIO' ? llenos : vaciados).get(i.dataset.nombre) || 0;
+      i.value = q > 0 ? String(Math.ceil(q - 1e-9)) : '';
+    });
+    mostrarSaldosEnvases();
+
+    // Lote: si sale de un solo lote del depósito, lo envasado queda con el mismo lote y vencimiento.
+    const lotes = [...new Map(salen.filter(l => l.lote_id).map(l => [l.lote_id, l])).values()];
+    if (lotes.length === 1) {
+      document.querySelectorAll('#renglones tr').forEach(tr => {
+        const lote = tr.querySelector('input[name=lote]'), vto = tr.querySelector('input[name=vencimiento]');
+        if (lote && !lote.value && !lote.dataset.tocado && lotes[0].lote) lote.value = lotes[0].lote;
+        if (vto && !vto.value && !vto.dataset.tocado && lotes[0].vencimiento) vto.value = lotes[0].vencimiento;
+      });
+    }
+
+    // Comparación de kilos: lo que había en el origen y lo que quedó envasado.
+    const kilosDestino = destino.resumen().kilos;
+    const kOrigen = deposito ? origen.resumen().kilos : R.leerNumero(kilosOrigen.value);
+    if (kOrigen > 0 && kilosDestino > 0) {
+      const dif = R.r3(kilosDestino - kOrigen);
+      const pct = Math.round(dif / kOrigen * 1000) / 10;
+      comparacion.innerHTML = `Origen: <strong>${R.fmt(kOrigen)} kg</strong> · Envasado: <strong>${R.fmt(kilosDestino)} kg</strong> · ` +
+        `Diferencia: <strong class="${dif < 0 ? 'haber' : (dif > 0 ? 'debe' : '')}">${dif > 0 ? '+' : ''}${R.fmt(dif)} kg</strong>` +
+        ` (${dif > 0 ? '+' : ''}${R.fmt(pct)} %)`;
+    } else {
+      comparacion.textContent = '';
+    }
+  }
+
+  // Si el usuario escribe el lote o el vencimiento a mano, no se completan solos.
+  document.getElementById('renglones').addEventListener('input', e => {
+    if (e.target.name === 'lote' || e.target.name === 'vencimiento') e.target.dataset.tocado = '1';
+  });
+
+  async function cargarProductos(conservarDestino, conservarOrigen) {
+    const id = empresa.value;
+    linkNuevo.href = '{{ url_for("stock.producto_form") }}?empresa_id=' + id + '&volver=' + encodeURIComponent(location.pathname + '?empresa_id=' + id);
+    if (!id) { productos = []; saldosInsumos = {}; aviso.style.display = ''; }
+    else {
+      const [r, rs] = await Promise.all([
+        fetch('{{ url_for("stock.api_productos") }}?empresa_id=' + id),
+        fetch('{{ url_for("stock.api_insumos") }}?empresa_id=' + id),
+      ]);
+      productos = await r.json();
+      saldosInsumos = await rs.json();
+      aviso.style.display = productos.length ? 'none' : '';
+      aviso.textContent = productos.length ? '' : 'Esta empresa todavía no tiene productos. Crealos con el enlace de arriba.';
+    }
+    origen.cargar(conservarOrigen);
+    destino.cargar(conservarDestino);
+    actualizarSaldosInsumos();
+    recalcular();
+  }
+
+  R.fotos(document.getElementById('fotos'), form, document.getElementById('fotos-previa'));
+  radios.forEach(r => r.addEventListener('change', recalcular));
+  kilosOrigen.addEventListener('input', recalcular);
+  empresa.addEventListener('change', () => cargarProductos());
+  document.getElementById('agregar').addEventListener('click', () => destino.agregar());
+  document.getElementById('agregar-origen').addEventListener('click', () => { origen.agregar(); recalcular(); });
+  cargarProductos({{ renglones|tojson }}, {{ renglones_origen|tojson }});
+})();
+</script>
+{% endblock %}

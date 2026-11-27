@@ -26,7 +26,7 @@
       {% for r in l.renglones %}
       <tr class="{{ 'anulado' if r.anulado }}">
         <td class="nowrap">{{ r.fecha|fecha }}</td>
-        <td class="nowrap"><a href="{{ url_for('stock.movimiento_detalle', movimiento_id=r.id) }}">{{ r.remito }}</a>{% if r.anulado %} <span class="etq anulado">anulado</span>{% endif %}</td>
+        <td class="nowrap"><a href="{{ url_for('stock.movimiento_detalle', movimiento_id=r.id) }}">{{ r.remito }}</a>{% if r.trasvaso_id %} <a class="etq trasvaso" href="{{ url_for('trasvasos.trasvaso_detalle', trasvaso_id=r.trasvaso_id) }}">trasvaso</a>{% endif %}{% if r.anulado %} <span class="etq anulado">anulado</span>{% endif %}</td>
         <td class="num debe">{{ r.cantidad|num if r.tipo == 'INGRESO' else '' }}</td>
         <td class="num haber">{{ r.cantidad|num if r.tipo == 'EGRESO' else '' }}</td>
         <td class="num">{{ r.kilos|num if r.kilos is not none else '' }}</td>

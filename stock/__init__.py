@@ -41,9 +41,11 @@ def create_app(config=None):
 
     from .deposito import bp as bp_deposito
     from .rutas import bp
+    from .trasvasos import bp as bp_trasvasos
 
     app.register_blueprint(bp)
     app.register_blueprint(bp_deposito)
+    app.register_blueprint(bp_trasvasos)
     return app
 
 

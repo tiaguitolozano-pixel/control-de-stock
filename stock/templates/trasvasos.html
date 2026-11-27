@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block titulo %}Trasvasos{% endblock %}
+{% block contenido %}
+<h1>Trasvasos</h1>
+<div class="acciones">
+  <a class="boton" href="{{ url_for('trasvasos.trasvaso_nuevo', empresa_id=f.empresa_id or '') }}">+ Cargar trasvaso</a>
+  <a class="boton secundario" href="{{ url_for('trasvasos.envases_vacios') }}">Envases vacíos y sucios</a>
+  <a class="boton secundario" href="{{ url_for('trasvasos.trasvasos_excel', **request.args) }}">⬇ Exportar a Excel</a>
+  <button class="boton secundario" onclick="window.print()">🖨 Imprimir</button>
+</div>
+
+{% if envases %}
+<div class="resumen">
+  {% for e in envases %}
+  <a class="tarjeta enlace" href="{{ url_for('trasvasos.envases_vacios') }}">
+    <div class="etiqueta">{{ e.nombre }}</div>
+    <div class="fila-total"><span>Vacíos</span><strong class="{{ 'haber' if e.vacios < 0 }}">{{ e.vacios|num }}</strong></div>
+    <div class="fila-total"><span>Sucios</span><strong>{{ e.sucios|num }}</strong></div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<form class="tarjeta filtros" method="get">
+  <div class="campo"><label>Empresa</label>
+    <select name="empresa_id"><option value="">Todas</option>
+      {% for e in empresas %}<option value="{{ e.id }}" {{ 'selected' if e.id == f.empresa_id }}>{{ e.nombre }}</option>{% endfor %}
+    </select></div>
+  <div class="campo"><label>Desde</label><input type="date" name="desde" value="{{ f.desde }}"></div>
+  <div class="campo"><label>Hasta</label><input type="date" name="hasta" value="{{ f.hasta }}"></div>
+  <div class="campo"><label>N° de orden o remito</label><input name="orden" value="{{ f.orden }}"></div>
+  <label class="check"><input type="checkbox" name="anulados" value="1" {{ 'checked' if f.anulados }}> Ver anulados</label>
+  <button class="boton">Filtrar</button>
+  <a href="{{ url_for('trasvasos.trasvasos') }}">Limpiar</a>
+</form>
+
+<div class="tabla">
+<table>
+  <thead><tr><th>Fecha</th><th>Orden</th><th>Empresa</th><th>Origen</th><th>Queda envasado</th>
+    <th class="num">Kilos</th><th>Envases vacíos usados</th><th>Envases sucios que quedan</th></tr></thead>
+  <tbody>
+  {% for t in trasvasos %}
+    <tr class="{{ 'anulado' if t.anulado }}">
+      <td class="nowrap">{{ t.fecha|fecha }}</td>
+      <td class="nowrap"><a href="{{ url_for('trasvasos.trasvaso_detalle', trasvaso_id=t.id) }}"><strong>{{ t.orden }}</strong></a>
+        {% if t.anulado %}<span class="etq anulado">anulado</span>{% endif %}</td>
+      <td>{{ t.empresa }}</td>
+      <td class="chico">
+        {% if t.origen == 'DEPOSITO' %}
+          <ul class="lista-corta">{% for p in t.sale %}<li>{{ p.texto }} · {{ p.codigo }}</li>{% endfor %}</ul>
+          <span class="ayuda">del depósito</span>
+        {% else %}
+          Llegó de afuera{% if t.contenedor %} · {{ t.tipo_contenedor ~ ' ' if t.tipo_contenedor }}{{ t.contenedor }}{% endif %}
+          {% if t.kilos_origen %}<div>{{ t.kilos_origen|num }} kg</div>{% endif %}
+        {% endif %}
+      </td>
+      <td><ul class="lista-corta">{% for p in t.envasado %}<li><strong>{{ p.texto }}</strong> · {{ p.codigo }}</li>{% endfor %}</ul></td>
+      <td class="num">{{ (t.kilos_destino|num ~ ' kg') if t.kilos_destino is not none else '' }}
+        {% if t.diferencia is not none %}<div class="chico {{ 'haber' if t.diferencia < 0 }}">{% if t.diferencia == 0 %}sin diferencia{% else %}{{ '+' if t.diferencia > 0 }}{{ t.diferencia|num }} kg{% endif %}</div>{% endif %}</td>
+      <td class="chico"><ul class="lista-corta">{% for e in t.envases if e.vacios %}<li>{{ e.vacios|num }} {{ e.nombre|lower }}</li>{% endfor %}</ul></td>
+      <td class="chico"><ul class="lista-corta">{% for e in t.envases if e.sucios %}<li>{{ e.sucios|num }} {{ e.nombre|lower }}</li>{% endfor %}</ul></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="vacio">{{ 'No hay trasvasos con esos filtros.' if request.args else 'Todavía no se cargaron trasvasos.' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if trasvasos|length >= limite %}<p class="ayuda">Se muestran los últimos {{ limite }}. Usá los filtros para ver otros.</p>{% endif %}
+<p class="ayuda">Cada trasvaso guarda lo que entró envasado al stock (como un ingreso) y, si el producto ya estaba en el depósito, lo que se vació (como un egreso).
+  Los dos remitos llevan el número de orden y aparecen también en el historial de movimientos. En Kilos, debajo, la diferencia con el origen.</p>
+{% endblock %}

@@ -334,7 +334,7 @@ def test_migracion_desde_la_version_2(tmp_path):
     app = create_app({"TESTING": True, "DATABASE": str(ruta)})
     with app.app_context():
         db = get_db()
-        assert db.execute("PRAGMA user_version").fetchone()[0] == len(MIGRACIONES) == 3
+        assert db.execute("PRAGMA user_version").fetchone()[0] == len(MIGRACIONES)
         assert "kilos_por_unidad" in [c[1] for c in db.execute("PRAGMA table_info(productos)")]
         assert {"contenedor", "tipo_contenedor"} <= {c[1] for c in db.execute("PRAGMA table_info(movimientos)")}
         assert [r["nombre"] for r in ins.lista()] == ["Pallets", "Film stretch"]

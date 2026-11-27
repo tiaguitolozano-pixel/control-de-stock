@@ -25,24 +25,21 @@ from .db import (
     proximo_vencimiento_por_producto,
     stock_de_lotes,
     stock_de_productos,
-    stock_por_lote_id,
 )
 from . import fotos as ft
 from . import insumos as ins
 from . import pallets as pl
+from . import remitos as rm
 from .excel import armar_excel
 from .formato import cantidad_pallets
 from .historial import libro_por_lote
 from .servicios import (
     CAMPOS_TRANSPORTE,
     ENCABEZADOS_PLANTILLA,
-    chequear_lote,
     importar_conteo,
     leer_planilla,
     normalizar_patente,
     normalizar_transporte,
-    obtener_o_crear_lote,
-    parse_fecha,
     parse_numero,
     registrar_movimiento,
 )
@@ -439,6 +436,10 @@ def envase_editar(envase_id):
         db.execute("UPDATE envases SET activo = 1 - activo WHERE id = ?", (envase_id,))
         db.commit()
         return redirect(url_for("stock.envases_lista"))
+    if request.form.get("accion") == "vacios":
+        db.execute("UPDATE envases SET lleva_vacios = 1 - lleva_vacios WHERE id = ?", (envase_id,))
+        db.commit()
+        return redirect(url_for("stock.envases_lista"))
     nombre = _texto("nombre")
     if not nombre:
         flash("El nombre no puede quedar vacío.", "error")
@@ -512,7 +513,7 @@ SQL_MOVS_DESDE = """
              JOIN lotes l ON l.id = i.lote_id"""
 
 # Un renglón por producto de cada remito, con lo necesario para el historial por lote.
-SQL_RENGLONES = """SELECT m.id, m.tipo, m.fecha, m.remito, m.observaciones, m.anulado,
+SQL_RENGLONES = """SELECT m.id, m.tipo, m.fecha, m.remito, m.observaciones, m.anulado, m.trasvaso_id,
                           m.chofer, m.transporte, m.patente_camion, m.patente_semi, m.contenedor, m.tipo_contenedor,
                           e.nombre AS empresa, p.id AS producto_id, p.codigo, p.descripcion, p.unidad,
                           p.unidades_por_pallet, p.kilos_por_unidad, i.id AS item_id, i.cantidad,
@@ -752,16 +753,7 @@ def movimiento_nuevo(tipo):
     remito = _texto("remito")
     observaciones = _texto("observaciones")
     transporte = normalizar_transporte({c: _texto(c) for c in CAMPOS_TRANSPORTE})
-    columnas = {c: request.form.getlist(c) for c in ("producto_id", "cantidad", "lote", "vencimiento", "lote_id")}
-    largo = len(columnas["producto_id"])
-    renglones = []
-    for n in range(largo):
-        r = {c: (v[n] if n < len(v) else "") for c, v in columnas.items()}
-        r["producto_id"] = _int_o_none(r["producto_id"])
-        r["lote_id"] = _int_o_none(r["lote_id"])
-        r["lote"] = (r["lote"] or "").strip()
-        if r["producto_id"] or (r["cantidad"] or "").strip():
-            renglones.append(r)
+    renglones = rm.leer_renglones(request.form)
 
     insumos, errores_insumos, textos_insumos = ins.leer_formulario(request.form)
     fotos, errores_fotos = ft.leer_subidas(request.files.getlist("fotos"))
@@ -779,61 +771,11 @@ def movimiento_nuevo(tipo):
     if tipo == "EGRESO" and empresa_id and insumos:
         errores += ins.chequear_egreso(empresa_id, insumos)
 
-    productos = {}
-    if empresa_id:
-        productos = {
-            r["id"]: r for r in db.execute("SELECT * FROM productos WHERE empresa_id = ?", (empresa_id,))
-        }
-
-    # Juntar renglones: si se repite el mismo producto y lote, se suman las cantidades.
-    items = defaultdict(float)
-    vencimientos = {}
-    for r in renglones:
-        cant = _numero(r["cantidad"])
-        p = productos.get(r["producto_id"])
-        if not r["producto_id"]:
-            errores.append("Hay un renglón sin producto.")
-            continue
-        if p is None:
-            errores.append("Hay productos que no son de la empresa elegida.")
-            continue
-        if cant is None or cant <= 0:
-            errores.append(f"{p['codigo']}: la cantidad tiene que ser mayor a cero.")
-            continue
-        if tipo == "INGRESO":
-            vto = parse_fecha(r["vencimiento"])
-            if vto is None:
-                errores.append(f"{p['codigo']}: la fecha de vencimiento no es válida.")
-                continue
-            clave = (p["id"], r["lote"].upper())
-            if clave in vencimientos and vto and vencimientos[clave][1] and vencimientos[clave][1] != vto:
-                errores.append(f"{p['codigo']}: el lote {r['lote']} está dos veces con distinto vencimiento.")
-                continue
-            if clave not in vencimientos or vto:
-                vencimientos[clave] = (r["lote"], vto)
-            error = chequear_lote(p["id"], r["lote"], vto, p["codigo"])
-            if error:
-                errores.append(error)
-                continue
-        else:
-            clave = (p["id"], r["lote_id"])
-            if not r["lote_id"]:
-                errores.append(f"{p['codigo']}: elegí de qué lote sale.")
-                continue
-        items[clave] += cant
-
-    if tipo == "EGRESO" and items and not errores:
-        lotes = {l["id"]: l for l in stock_de_lotes(lote_ids=[lid for _, lid in items], solo_con_stock=False)}
-        for (pid, lid), cant in items.items():
-            l = lotes.get(lid)
-            if l is None or l["producto_id"] != pid:
-                errores.append(f"{productos[pid]['codigo']}: el lote elegido no corresponde al producto.")
-            elif cant > l["stock"] + 1e-9:
-                nombre = f"lote {l['lote']}" if l["lote"] else "sin lote"
-                errores.append(
-                    f"No hay stock suficiente de {l['codigo']} - {l['descripcion']} ({nombre}): "
-                    f"hay {l['stock']:g} y querés sacar {cant:g}."
-                )
+    productos = rm.productos_de_empresa(empresa_id)
+    items, vencimientos, errores_renglones = rm.revisar_renglones(tipo, renglones, productos)
+    errores += errores_renglones
+    if tipo == "EGRESO" and not errores:
+        errores += rm.chequear_stock(items, productos)
 
     mostrar_repetido = False
     if tipo == "INGRESO" and empresa_id and remito and not errores:
@@ -859,15 +801,9 @@ def movimiento_nuevo(tipo):
 
     plan_pallets = {}
     if tipo == "INGRESO":
-        lineas = []
-        for (pid, clave_lote), cant in items.items():
-            lote, vto = vencimientos[(pid, clave_lote)]
-            lineas.append((pid, obtener_o_crear_lote(pid, lote, vto), cant))
+        lineas = rm.lineas_de_ingreso(items, vencimientos)
     else:
-        lineas = [(pid, lid, cant) for (pid, lid), cant in items.items()]
-        # Sin pallets escaneados: el programa decide de qué pallets sale (ver pallets.planear_salida).
-        for pid, lid, cant in lineas:
-            plan_pallets[(pid, lid)] = pl.planear_salida(lid, cant, productos[pid]["unidades_por_pallet"])
+        lineas, plan_pallets = rm.lineas_de_egreso(items, productos)
     mid = registrar_movimiento(tipo, empresa_id, fecha, remito, observaciones, lineas, transporte, insumos)
     avisos, creados = [], []
     if tipo == "INGRESO" and request.form.get("crear_pallets") == "1":
@@ -899,14 +835,13 @@ def _movimiento_o_404(movimiento_id):
     return m
 
 
-@bp.route("/movimientos/<int:movimiento_id>")
-def movimiento_detalle(movimiento_id):
-    m = _movimiento_o_404(movimiento_id)
+def items_de_movimiento(movimiento_id):
+    """Los renglones de un remito con sus kilos, y los totales (por tipo de envase y en kilos)."""
     items = [
         {**dict(i), "kilos": _kilos(i["cantidad"], i["kilos_por_unidad"])}
         for i in get_db().execute(
             """SELECT i.cantidad, p.id AS producto_id, p.codigo, p.descripcion, p.unidad,
-                      p.unidades_por_pallet, p.kilos_por_unidad, l.lote, l.vencimiento
+                      p.unidades_por_pallet, p.kilos_por_unidad, l.id AS lote_id, l.lote, l.vencimiento
                FROM movimiento_items i JOIN productos p ON p.id = i.producto_id
                JOIN lotes l ON l.id = i.lote_id
                WHERE i.movimiento_id = ? ORDER BY i.id""",
@@ -921,15 +856,25 @@ def movimiento_detalle(movimiento_id):
         "kilos": round(sum(i["kilos"] or 0 for i in items), 3),
         "sin_kilos": sorted({i["codigo"] for i in items if i["kilos"] is None}),
     }
+    return items, totales
+
+
+@bp.route("/movimientos/<int:movimiento_id>")
+def movimiento_detalle(movimiento_id):
+    m = _movimiento_o_404(movimiento_id)
+    items, totales = items_de_movimiento(movimiento_id)
     usados = pl.pallets_de_movimiento(movimiento_id)
     armados = []
     if m["tipo"] == "INGRESO":
         armados = pl.pallets(ids=[r[0] for r in get_db().execute(
             "SELECT id FROM pallets WHERE movimiento_id = ?", (movimiento_id,))], con_contenido=False)
+    trasvaso = None
+    if m["trasvaso_id"]:
+        trasvaso = get_db().execute("SELECT id, orden FROM trasvasos WHERE id = ?", (m["trasvaso_id"],)).fetchone()
     return render_template("movimiento_detalle.html", m=m, items=items, totales=totales, tipos=TIPOS,
                            usados=usados, armados=sorted(armados, key=lambda p: p["id"]),
                            insumos=ins.de_movimiento(movimiento_id), nombre_insumo=ins.nombre_renglon,
-                           fotos=ft.de_movimiento(movimiento_id))
+                           fotos=ft.de_movimiento(movimiento_id), trasvaso=trasvaso)
 
 
 @bp.route("/movimientos/<int:movimiento_id>/anular", methods=["POST"])
@@ -939,43 +884,17 @@ def movimiento_anular(movimiento_id):
     if m["anulado"]:
         flash("Ese remito ya estaba anulado.", "error")
         return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))
+    if m["trasvaso_id"]:
+        flash("Este remito es parte de un trasvaso: para anularlo, anulá el trasvaso completo.", "error")
+        return redirect(url_for("trasvasos.trasvaso_detalle", trasvaso_id=m["trasvaso_id"]))
     motivo = _texto("motivo")
     if not motivo:
         flash("Escribí el motivo de la anulación.", "error")
         return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))
     if m["tipo"] == "INGRESO":
-        # Si ya se sacó mercadería de este ingreso, anularlo dejaría stock negativo.
-        items = db.execute(
-            """SELECT i.lote_id, i.cantidad, p.codigo, l.lote FROM movimiento_items i
-               JOIN productos p ON p.id = i.producto_id JOIN lotes l ON l.id = i.lote_id
-               WHERE i.movimiento_id = ?""",
-            (movimiento_id,),
-        ).fetchall()
-        stock = stock_por_lote_id({i["lote_id"] for i in items})
-        a_restar = defaultdict(float)
-        for i in items:
-            a_restar[i["lote_id"]] += i["cantidad"]
-        problemas = [
-            i["codigo"] + (f" (lote {i['lote']})" if i["lote"] else "") for i in items
-            if stock.get(i["lote_id"], 0) - a_restar[i["lote_id"]] < -1e-9
-        ]
-        if problemas:
-            flash(
-                "No se puede anular: el stock quedaría negativo para "
-                + ", ".join(sorted(set(problemas)))
-                + ". Primero anulá los egresos que usaron esa mercadería.",
-                "error",
-            )
-            return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))
-        problemas = pl.problemas_al_anular(movimiento_id)
-        if problemas:
-            flash("No se puede anular: " + "; ".join(problemas)
-                  + ". Primero anulá esos egresos o desarmá esos pallets.", "error")
-            return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))
-        problemas = ins.problemas_al_anular(m)
-        if problemas:
-            flash("No se puede anular: " + "; ".join(problemas)
-                  + ". Primero anulá los egresos que sacaron esos pallets.", "error")
+        problema = rm.problema_al_anular_ingreso(m)
+        if problema:
+            flash(problema, "error")
             return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id))
     db.execute(
         "UPDATE movimientos SET anulado = 1, motivo_anulacion = ? WHERE id = ?", (motivo, movimiento_id)
@@ -986,6 +905,14 @@ def movimiento_anular(movimiento_id):
 
 
 # -------------------------------------------------------------------- fotos
+
+
+def _volver(por_defecto):
+    """A dónde volver después de agregar o quitar fotos (el trasvaso muestra las fotos de su ingreso)."""
+    destino = request.form.get("volver") or ""
+    if destino.startswith("/") and not destino.startswith("//"):
+        return destino
+    return por_defecto
 
 
 @bp.route("/movimientos/<int:movimiento_id>/fotos", methods=["POST"])
@@ -1000,7 +927,7 @@ def movimiento_fotos(movimiento_id):
         cantidad = ft.guardar(movimiento_id, subidas)
         get_db().commit()
         flash("Se agregó 1 foto." if cantidad == 1 else f"Se agregaron {cantidad} fotos.", "ok")
-    return redirect(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id) + "#fotos")
+    return redirect(_volver(url_for("stock.movimiento_detalle", movimiento_id=movimiento_id) + "#fotos"))
 
 
 @bp.route("/fotos/<int:foto_id>")
@@ -1018,7 +945,7 @@ def foto_borrar(foto_id):
         abort(404)
     ft.borrar(fila)
     flash("Foto quitada.", "ok")
-    return redirect(url_for("stock.movimiento_detalle", movimiento_id=fila["movimiento_id"]) + "#fotos")
+    return redirect(_volver(url_for("stock.movimiento_detalle", movimiento_id=fila["movimiento_id"]) + "#fotos"))
 
 
 # ----------------------------------------------------------------- insumos

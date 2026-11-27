@@ -192,6 +192,51 @@ MIGRACIONES = [
     CREATE INDEX IF NOT EXISTS idx_mov_insumos_mov ON movimiento_insumos(movimiento_id);
     CREATE INDEX IF NOT EXISTS idx_mov_fotos_mov ON movimiento_fotos(movimiento_id);
     """,
+    # 4: trasvasos (de un isotanque, cisternas o tambores a otros envases) y el stock de envases
+    #    vacíos y sucios del depósito.
+    """
+    -- 1: se lleva la cuenta de cuántos vacíos y sucios de este tipo hay en el depósito.
+    ALTER TABLE envases ADD COLUMN lleva_vacios INTEGER NOT NULL DEFAULT 0;
+    UPDATE envases SET lleva_vacios = 1
+        WHERE LOWER(nombre) LIKE '%tambor%' OR LOWER(nombre) LIKE '%cisterna%'
+           OR LOWER(nombre) LIKE '%bidon%' OR LOWER(nombre) LIKE 'bid_n%' OR LOWER(nombre) LIKE '%ibc%';
+    -- Un trasvaso es una orden del cliente. Lo que sale del stock (si el producto ya estaba en el
+    -- depósito) es un egreso y lo que queda envasado es un ingreso: los dos llevan trasvaso_id.
+    CREATE TABLE IF NOT EXISTS trasvasos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        empresa_id INTEGER NOT NULL REFERENCES empresas(id),
+        fecha TEXT NOT NULL,
+        orden TEXT NOT NULL,
+        remito TEXT,
+        -- AFUERA: llega de afuera (isotanque del puerto, camión). DEPOSITO: sale del stock del depósito.
+        origen TEXT NOT NULL CHECK (origen IN ('AFUERA', 'DEPOSITO')),
+        kilos_origen REAL,
+        observaciones TEXT,
+        creado_en TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        anulado INTEGER NOT NULL DEFAULT 0,
+        motivo_anulacion TEXT
+    );
+    ALTER TABLE movimientos ADD COLUMN trasvaso_id INTEGER REFERENCES trasvasos(id);
+    -- Envases vacíos y sucios del depósito (no son mercadería de los clientes). El saldo es la suma.
+    CREATE TABLE IF NOT EXISTS envase_movs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        envase_id INTEGER NOT NULL REFERENCES envases(id),
+        estado TEXT NOT NULL CHECK (estado IN ('VACIO', 'SUCIO')),
+        cantidad REAL NOT NULL CHECK (cantidad <> 0),
+        motivo TEXT NOT NULL,
+        fecha TEXT NOT NULL,
+        trasvaso_id INTEGER REFERENCES trasvasos(id),
+        -- Los renglones que se anotaron juntos (por ejemplo, un lavado: salen sucios y entran vacíos).
+        grupo INTEGER,
+        observaciones TEXT,
+        creado_en TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        anulado INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_trasvasos_empresa_fecha ON trasvasos(empresa_id, fecha);
+    CREATE INDEX IF NOT EXISTS idx_mov_trasvaso ON movimientos(trasvaso_id);
+    CREATE INDEX IF NOT EXISTS idx_envase_movs_envase ON envase_movs(envase_id, estado);
+    CREATE INDEX IF NOT EXISTS idx_envase_movs_trasvaso ON envase_movs(trasvaso_id);
+    """,
 ]
 
 

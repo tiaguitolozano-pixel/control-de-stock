@@ -15,6 +15,7 @@
         <a href="{{ url_for('stock.inicio') }}" class="{{ 'activo' if seccion == 'stock.inicio' }}">Stock</a>
         <a href="{{ url_for('stock.movimiento_nuevo', tipo='ingreso') }}" class="{{ 'activo' if request.view_args and request.view_args.get('tipo','').upper() == 'INGRESO' }}">+ Ingreso</a>
         <a href="{{ url_for('stock.movimiento_nuevo', tipo='egreso') }}" class="{{ 'activo' if request.view_args and request.view_args.get('tipo','').upper() == 'EGRESO' }}">− Egreso</a>
+        <a href="{{ url_for('trasvasos.trasvasos') }}" class="{{ 'activo' if seccion.startswith('trasvasos.') }}">⇄ Trasvasos</a>
         <a href="{{ url_for('stock.lotes') }}" class="{{ 'activo' if seccion == 'stock.lotes' }}">Lotes y vencimientos</a>
         <a href="{{ url_for('deposito.pallets_lista') }}" class="{{ 'activo' if seccion.startswith('deposito.pallet') }}">Pallets</a>
         <a href="{{ url_for('deposito.deposito') }}" class="{{ 'activo' if seccion in ('deposito.deposito', 'deposito.ubicacion') }}">Depósito</a>
